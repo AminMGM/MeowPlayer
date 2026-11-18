@@ -17,10 +17,15 @@ export interface UpdateInfo {
   assetUrl: string | null
 }
 
+// Split on any run of non-digits, so sloppy tags still compare correctly:
+// "v1.8.5", "v.1.8.5" and "1.8.5-beta.2" all become [1,8,5] / [1,8,5,2].
+// (A leading dot used to produce [0,1,8,5], which read as older than 1.8.5 and
+// silently hid the update.)
 const parts = (value: string): number[] =>
   value
     .replace(/^v/i, '')
-    .split(/[.+-]/)
+    .split(/[^0-9]+/)
+    .filter((piece) => piece.length > 0)
     .map((piece) => parseInt(piece, 10) || 0)
 
 function isNewer(candidate: string, current: string): boolean {
