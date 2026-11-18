@@ -1,0 +1,26 @@
+{
+  "appId": "com.meowplayer.app",
+  "productName": "MeowPlayer",
+  "directories": { "output": "release", "buildResources": "build" },
+  "files": ["dist/**/*", "dist-electron/**/*", "assets/**/*", "package.json"],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "artifactName": "MeowPlayer-Setup-${version}.${ext}",
+    "icon": "assets/icon.ico"
+  },
+  "fileAssociations": [
+    {
+      "ext": ["mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "wma", "aiff", "aif"],
+      "name": "Audio file",
+      "description": "Audio file",
+      "role": "Viewer"
+    }
+  ],
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "MeowPlayer"
+  }
+}

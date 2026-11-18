@@ -1,0 +1,35 @@
+{
+  "name": "meowplayer",
+  "productName": "MeowPlayer",
+  "version": "1.8.5",
+  "private": true,
+  "description": "MeowPlayer - a frosted-glass music player for Windows",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "author": "MeowPlayer",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:main": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "dist": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "music-metadata": "^12.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
