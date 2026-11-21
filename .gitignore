@@ -6,23 +6,26 @@ dist/
 dist-electron/
 release/
 
-# Local app data and logs
+# Logs and local state
 *.log
 logs/
 
-# Local-only reference material
-backup/
-.cloud-attachments/
-.freebuff/
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Secrets and machine-specific config
+# Secrets
 .env
 .env.*
 !.env.example
 *.pem
 *.key
 
-# OS clutter
-.DS_Store
-Thumbs.db
-desktop.ini
+# Local tooling
+graphify-out/
+backup/
+.cloud-attachments/
+.freebuff/

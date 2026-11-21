@@ -1,12 +1,29 @@
 {
   "name": "meowplayer",
   "productName": "MeowPlayer",
-  "version": "1.8.5",
+  "version": "2.0.0",
   "private": true,
-  "description": "MeowPlayer - a frosted-glass music player for Windows",
+  "description": "A frosted-glass music player for your local library on Windows.",
+  "keywords": [
+    "music-player",
+    "electron",
+    "react",
+    "windows",
+    "lyrics",
+    "equalizer"
+  ],
+  "homepage": "https://github.com/AminMGM/MeowPlayer#readme",
+  "bugs": {
+    "url": "https://github.com/AminMGM/MeowPlayer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AminMGM/MeowPlayer.git"
+  },
+  "license": "MIT",
+  "author": "AminMGM",
   "type": "module",
   "main": "dist-electron/main.js",
-  "author": "MeowPlayer",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build:main": "tsc -p tsconfig.electron.json",
@@ -14,10 +31,15 @@
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "lint": "oxlint --deny-warnings",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "icons": "node scripts/make-icons.mjs",
     "dist": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "music-metadata": "^12.5.0",
+    "node-taglib-sharp": "^6.0.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.1.0"
@@ -29,7 +51,12 @@
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "^45.3.3",
     "electron-builder": "^26.18.0",
+    "oxlint": "^1.94.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
