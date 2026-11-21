@@ -1,16 +1,45 @@
 {
   "appId": "com.meowplayer.app",
   "productName": "MeowPlayer",
-  "directories": { "output": "release", "buildResources": "build" },
-  "files": ["dist/**/*", "dist-electron/**/*", "assets/**/*", "package.json"],
+  "copyright": "Copyright © 2026 AminMGM",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "assets/icon.ico",
+    "assets/icon.png",
+    "assets/tray.png",
+    "package.json"
+  ],
   "win": {
-    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
     "artifactName": "MeowPlayer-Setup-${version}.${ext}",
     "icon": "assets/icon.ico"
   },
   "fileAssociations": [
     {
-      "ext": ["mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "wma", "aiff", "aif"],
+      "ext": [
+        "mp3",
+        "flac",
+        "m4a",
+        "aac",
+        "wav",
+        "ogg",
+        "opus",
+        "wma",
+        "aiff",
+        "aif"
+      ],
       "name": "Audio file",
       "description": "Audio file",
       "role": "Viewer"
@@ -18,9 +47,20 @@
   ],
   "nsis": {
     "oneClick": false,
-    "perMachine": false,
+    "perMachine": true,
+    "allowElevation": true,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
-    "shortcutName": "MeowPlayer"
+    "createStartMenuShortcut": true,
+    "shortcutName": "MeowPlayer",
+    "license": "LICENSE",
+    "deleteAppDataOnUninstall": false,
+    "installerIcon": "assets/icon.ico",
+    "uninstallerIcon": "assets/icon.ico",
+    "installerHeaderIcon": "assets/icon.ico",
+    "installerSidebar": "build/installerSidebar.bmp",
+    "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+    "installerHeader": "build/installerHeader.bmp",
+    "uninstallDisplayName": "MeowPlayer"
   }
 }
