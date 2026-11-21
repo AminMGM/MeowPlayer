@@ -1,111 +1,166 @@
+<div align="center">
+
+<img src="docs/logo.svg" width="96" height="96" alt="MeowPlayer logo">
+
 # MeowPlayer
 
-A frosted-glass desktop music player for Windows. Electron + React + Web Audio: local library playback,
-10-band equalizer, crossfade, synced lyrics, floating mini player and system tray.
+**A frosted-glass music player for your local library on Windows.**
 
-```bash
-npm install
-npm run dev     # Vite + Electron with UI hot reload
-npm start       # build, then launch
-npm run dist    # Windows installer into ./release
-```
+Synced lyrics, a 10-band equalizer, gapless playback and crossfade, smart playlists
+and listening stats, all in a calm glass interface that sits on top of your desktop.
 
-## Interface
+[![Latest release](https://img.shields.io/github/v/release/AminMGM/MeowPlayer?label=download&color=a3b7c9)](https://github.com/AminMGM/MeowPlayer/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/AminMGM/MeowPlayer/total?color=5f7385)](https://github.com/AminMGM/MeowPlayer/releases)
+[![CI](https://github.com/AminMGM/MeowPlayer/actions/workflows/ci.yml/badge.svg)](https://github.com/AminMGM/MeowPlayer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-8496a6)](LICENSE)
+![Windows 10 and 11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-6f8496)
 
-One continuous graphite shell instead of floating panels — the sidebar, library, dock and player are
-separated only by brightness and hairline rules. Cold grey palette, translucent surface over the Windows 11
-acrylic backdrop. Theme, accent colour and glass blur are adjustable; **Graphite** is the default.
+[**Download for Windows**](https://github.com/AminMGM/MeowPlayer/releases/latest) ·
+[What's new](CHANGELOG.md) ·
+[Report a problem](https://github.com/AminMGM/MeowPlayer/issues)
 
-- Collapsible sidebar (icons only) for more library space
-- Now playing can be the centre pane instead of the library (*Settings → Now playing in the center*)
-- Glassy spectrum visualizer and synced lyrics in every now-playing surface
-- The supplied cat logo is used in the title bar and as the app/tray icon
+<br>
 
-## Playback
+<img src="docs/screenshots/home.jpg" alt="MeowPlayer home screen" width="100%">
 
-- MP3, FLAC, M4A/AAC, WAV, OGG/OPUS, WMA, AIFF via a range-capable `mp-media://` protocol
-- Play/pause, next/previous, seek, volume, mute, shuffle, repeat, speed 0.5–2×, sleep timer
-- **Crossfade** 0–12 s between tracks (dual-deck Web Audio engine)
-- **Volume boost up to 150%** — off by default, enable in settings
-- **Output device picker** for speakers, Bluetooth and other audio outputs (Web Audio `setSinkId`)
-- **Session resume**: the app reopens on the last track and position, and Play picks up from there
-- **Smart queue** extends the current queue with tracks from the same genre, artist and album
-- **Sleep timer** with presets and any custom duration; the last 15 seconds fade out
-- **Pause on sleep or lock** — playback stops when Windows sleeps
-- Optional **track-change notifications** (off by default)
-- OS media keys, Windows media overlay, taskbar thumbnail transport buttons
+</div>
 
-## Library and views
+## Features
 
-- Songs, Albums, Artists, **Folders**, **Genres**, Liked, Playlists, Search
-- **Folders** with a per-folder menu (rename label, add to playlist, remove) and subfolder drilling
-- **Playlist covers** — click the artwork on a playlist page to choose an image
-- **Duplicate hiding** for the Songs view, and an **edit track details** dialog from the ⋯ menu
-- **Home** shows a rotating greeting, a *Suggested from your library* row and recently played
-- Playlists with drag reordering, `.m3u8` import/export, add-to-playlist from the player bar (**+**)
-- **Drag and drop** audio files or folders onto the window — a "Drop to play" overlay appears, new files are
-  indexed and playback starts
-- Opening an audio file from Explorer launches the floating mini player; files outside the library show an
-  **Add** button to include them
+### Listening
 
-## Mini player, tray and window
+- **Plays everything you have.** MP3, FLAC, M4A/AAC, WAV, OGG/Opus, WMA and AIFF.
+- **Synced lyrics** from [LRCLIB](https://lrclib.net), with the current line filling in as it is sung.
+  Click any line to jump there, or download lyrics for your whole library to use offline.
+- **Gapless playback and crossfade** of up to 12 seconds between tracks.
+- **10-band equalizer** with presets, your own saved presets and a live curve.
+- **Volume normalization** from the ReplayGain tags in your files, per track or per album.
+- **A real shuffle.** Every song plays once before anything repeats, and Previous goes back to what you
+  actually heard.
+- **Sleep timer** that fades the music out, playback speed from 0.5× to 2×, and output device selection.
 
-- Transparent floating glass mini player with the same 18 px radius as the app's cards
-- **System tray**: left-click the tray icon to open the app, right-click for the menu
-  (open, play/pause, next/previous, quit)
-- Closing the window sends the app to the tray (toggleable in settings)
-- Installer registers mp3, flac, m4a, aac, wav, ogg, opus, wma, aiff — use *Settings → Default music player*
-  to pick MeowPlayer in Windows default apps
+### Your library
 
-## Lyrics
+- **Albums, artists, genres, folders and playlists**, with sortable song lists that stay fast in
+  libraries with tens of thousands of tracks.
+- **Smart playlists** that fill themselves: *Recently added*, *Most played* and *Recently played*.
+- **Listening stats** with your listening time, the last 30 days and your top artists, albums and genres.
+  Counted on your PC only.
+- **Edit track details** and the changes are written into the file, so every player sees them.
+- **Watches your folders** and picks up new, changed or deleted files on its own.
+- **Drag and drop** files or folders to play them right away, and import or export `.m3u8` playlists.
 
-Synced lyrics come from [LRCLIB](https://lrclib.net) — free, no API key, matched by title, artist, album and
-track length, then cached under `%APPDATA%/MeowPlayer/lyrics`. Disable them entirely, or turn off automatic
-downloading and fetch on demand from the lyrics panel, in settings.
+### On your desktop
 
-## Appearance
+- **Frosted glass** over the Windows acrylic backdrop, in Graphite, Light, Cherry or Navy, or following
+  your Windows light and dark mode. Pick an accent, or let it follow the album art.
+- **Floating mini player** with the current lyric line, always on top.
+- **Media keys, the Windows media overlay and taskbar buttons** all control playback.
+- **System tray**: close the window and keep the music going.
+- **Scales with your window**, from a small corner window to a 4K display.
 
-Four themes (Graphite, Light, Cherry, Navy), five accent swatches, adjustable glass blur, an interface scale
-for HiDPI screens, and three flowing visualizer styles (**Ribbon**, **Aurora**, **Filament**) alongside the
-bars. With **theme from album art** on, the accent follows the current cover.
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/now-playing.jpg" alt="Now playing with synced lyrics"></td>
+    <td width="50%"><img src="docs/screenshots/album.jpg" alt="Album page"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Now playing, with synced lyrics and the queue</sub></td>
+    <td align="center"><sub>Album pages tinted by their artwork</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/stats.jpg" alt="Listening stats"></td>
+    <td width="50%"><img src="docs/screenshots/settings.jpg" alt="Settings"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Listening stats</sub></td>
+    <td align="center"><sub>Settings, grouped by category</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/light.jpg" alt="Light theme"></td>
+    <td width="50%"><img src="docs/screenshots/navy.jpg" alt="Navy theme"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Light theme</sub></td>
+    <td align="center"><sub>Navy theme</sub></td>
+  </tr>
+</table>
 
-## Updates
+<p align="center">
+  <img src="docs/screenshots/mini-player.png" alt="Mini player" width="380"><br>
+  <sub>The mini player floats above your other windows</sub>
+</p>
 
-MeowPlayer checks `github.com/AminMGM/MeowPlayer/releases/latest` shortly after launch (and on demand from
-**Settings → Updates**). New releases offer *Install update* (downloads the installer and relaunches it),
-*Hide for 7 days,* or the release page. Everything can be turned off with one switch.
+## Download
 
-## Releasing
+Get **`MeowPlayer-Setup-<version>.exe`** from the
+[latest release](https://github.com/AminMGM/MeowPlayer/releases/latest) and run it. MeowPlayer installs
+into `C:\Program Files\MeowPlayer`, so Windows asks for permission once.
 
-```bash
-npm run dist    # builds and writes release/MeowPlayer-Setup-<version>.exe
-```
+The installer is not code-signed yet, so Windows SmartScreen may say it does not recognise the app.
+Choose **More info → Run anyway**. MeowPlayer checks GitHub for new versions and can update itself;
+downloaded updates are verified against the checksum GitHub publishes before they run.
 
-Bump `version` in `package.json`, build, then publish the installer as a GitHub release tagged with that
-version (for example `v1.4.2`). The updater compares that tag with the running version.
+To make MeowPlayer your default player, open **Settings → System → Default music player**.
 
-## Keyboard
+## Keyboard shortcuts
 
 | Keys | Action |
 | --- | --- |
-| `Space` | Play / pause |
-| `←` `→` | Seek 5 s |
-| `Ctrl` + `←` `→` | Previous / next |
-| `↑` `↓` | Volume |
-| `M` / `S` / `R` / `F` | Mute / shuffle / repeat / like |
-| `Ctrl` + `F` | Search |
-| `Esc` | Close panels |
+| <kbd>Space</kbd> | Play or pause |
+| <kbd>←</kbd> <kbd>→</kbd> | Seek 5 seconds |
+| <kbd>Ctrl</kbd> + <kbd>←</kbd> <kbd>→</kbd> | Previous or next track |
+| <kbd>↑</kbd> <kbd>↓</kbd> | Volume |
+| <kbd>M</kbd> · <kbd>S</kbd> · <kbd>R</kbd> · <kbd>L</kbd> | Mute · shuffle · repeat · like |
+| <kbd>Ctrl</kbd> + <kbd>F</kbd> | Search |
+| <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> | Back or forward (mouse side buttons work too) |
+| <kbd>Enter</kbd> | Play the selected song |
+| <kbd>Esc</kbd> | Close menus and dialogs |
 
-## Project layout
+In song lists, click to select, <kbd>Ctrl</kbd>/<kbd>Shift</kbd>-click to select several, double-click or
+press <kbd>Enter</kbd> to play, and right-click for more.
 
+## Privacy
+
+MeowPlayer works offline and has no accounts, analytics or telemetry. It only goes online to:
+
+- look up lyrics on [LRCLIB](https://lrclib.net) (sending the title, artist, album and length of the
+  song), which you can turn off in **Settings → Lyrics**;
+- check GitHub for a newer version, which you can turn off in **Settings → System**.
+
+Your library, playlists and stats are stored in `%APPDATA%\MeowPlayer`.
+
+## Building from source
+
+You need [Node.js](https://nodejs.org) 22 or newer on Windows.
+
+```bash
+git clone https://github.com/AminMGM/MeowPlayer.git
+cd MeowPlayer
+npm install
+npm run dev       # run with hot reload
+npm run check     # typecheck, lint and unit tests
+npm run dist      # build the installer into ./release
 ```
-electron/        main process — window, tray, mini window, media protocol, scanner, lyrics, updater
-src/             renderer — store, dual-deck audio engine, components, styles
-src/styles/      shell.css · panels.css · overlays.css
-src/greetings.ts generated from assets/for use/MeowPlayer Home Greeting System.md
-assets/          logo, app icon, tray icon, Meowdownlaod logo
-scripts/         dev launcher, greeting generator
-backup/          previous framed ("glass panels") UI, kept for reference
-```
 
-State lives in `%APPDATA%/MeowPlayer/meowplayer-state.json`, artwork in `covers/`.
+| Folder | What is in it |
+| --- | --- |
+| `electron/` | Main process: windows, tray, media protocol, library scanner, tag writing, lyrics, updater |
+| `src/store/` | App state, split into slices (library, playback, collection, lyrics, settings, UI) |
+| `src/audio/` | The two-deck Web Audio engine: crossfade, gapless, EQ, normalization |
+| `src/components/`, `src/views/` | The interface |
+| `src/styles/` | Design tokens, themes and styles |
+| `tests/` | Unit tests (Vitest) |
+| `build/` | Installer artwork |
+
+Releasing a new version is described in [docs/RELEASING.md](docs/RELEASING.md).
+
+## Contributing
+
+Bug reports and ideas are welcome in [Issues](https://github.com/AminMGM/MeowPlayer/issues). For pull
+requests, please run `npm run check` first and keep changes focused.
+
+## License
+
+[MIT](LICENSE) © AminMGM. Lyrics are provided by [LRCLIB](https://lrclib.net).
+The screenshots use a demo library with made-up artists and original artwork.
