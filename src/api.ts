@@ -83,9 +83,14 @@ export interface AppApi {
   updates: {
     check: (force: boolean) => Promise<UpdateInfo | null>
     snooze: (days: number) => Promise<number>
-    install: () => Promise<{ ok: boolean; file?: string; error?: string }>
+    /** Downloads the update found by the last check (only the changed parts). */
+    download: () => Promise<{ ok: boolean; error?: string }>
+    /** Restarts into the downloaded update. */
+    install: () => Promise<{ ok: boolean; error?: string }>
     openRelease: (url: string) => Promise<void>
     onAvailable: (cb: (info: UpdateInfo) => void) => Unsubscribe
+    /** Download progress and state changes. */
+    onStatus: (cb: (info: UpdateInfo) => void) => Unsubscribe
   }
   onPlayerCommand: (cb: (command: string) => void) => Unsubscribe
   onOpenFiles: (cb: (paths: string[]) => void) => Unsubscribe
@@ -154,9 +159,11 @@ const browserStub: AppApi = {
   updates: {
     check: resolved<UpdateInfo | null>(null),
     snooze: resolved(0),
+    download: async () => ({ ok: false, error: 'Updates are only available in the desktop app' }),
     install: async () => ({ ok: false, error: 'Updates are only available in the desktop app' }),
     openRelease: resolved(undefined),
     onAvailable: off,
+    onStatus: off,
   },
   onPlayerCommand: off,
   onOpenFiles: off,

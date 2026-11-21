@@ -1,13 +1,22 @@
 import { app, net, shell } from 'electron'
-import crypto from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
+import electronUpdater from 'electron-updater'
 import { getState } from './store.js'
 import { isNewer } from './version.js'
+
+const { autoUpdater } = electronUpdater
 
 const REPO = 'AminMGM/MeowPlayer'
 const API = `https://api.github.com/repos/${REPO}/releases/latest`
 const RELEASES = `https://github.com/${REPO}/releases/latest`
+
+export type UpdateStatus = 'available' | 'downloading' | 'downloaded' | 'error'
+
+export interface UpdateProgress {
+  percent: number
+  transferred: number
+  total: number
+  bytesPerSecond: number
+}
 
 export interface UpdateInfo {
   current: string
@@ -16,39 +25,114 @@ export interface UpdateInfo {
   notes: string
   pageUrl: string
   assetUrl: string | null
-}
-
-interface ReleaseAsset {
-  name?: string
-  browser_download_url?: string
-  digest?: string | null
+  status: UpdateStatus
+  progress: UpdateProgress | null
+  error: string | null
+  /** True when the app can download and install the update itself. */
+  canSelfUpdate: boolean
 }
 
 /**
- * The last release this process fetched from GitHub. Installs only ever use
- * this copy, never anything the renderer sends back, so the renderer cannot
- * make the main process download and run an arbitrary executable.
+ * Updates use electron-updater. Each release carries a `latest.yml` and a
+ * `.blockmap` next to the installer; the blockmap lists the installer's chunks,
+ * so an update only downloads the chunks that changed since the installed
+ * version (usually a fraction of the full installer). The download is checked
+ * against the SHA-512 in `latest.yml` before it can run, and it is installed on
+ * "Restart to update" or the next time the app quits.
+ *
+ * Development builds cannot update themselves, so they only report what GitHub
+ * offers and open the release page.
  */
-let latest: { info: UpdateInfo; sha256: string | null } | null = null
+
+let send: (info: UpdateInfo) => void = () => undefined
+let beforeInstall: () => void = () => undefined
+let current: UpdateInfo | null = null
+let wired = false
+// The renderer persists the snooze in settings; this keeps it for the current run.
+let sessionSnooze = 0
+
+const canSelfUpdate = (): boolean => app.isPackaged || Boolean(process.env.MEOWPLAYER_UPDATE_FEED)
 
 function settingsOf(): Record<string, unknown> {
   return (getState().settings ?? {}) as Record<string, unknown>
 }
 
-// The renderer persists the snooze in settings; this keeps it honest for the
-// current run even before that write lands.
-let sessionSnooze = 0
+function publish(patch: Partial<UpdateInfo>): void {
+  if (!current) return
+  current = { ...current, ...patch }
+  send(current)
+}
 
-const isGitHubUrl = (value: string): boolean => {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && (url.hostname === 'github.com' || url.hostname.endsWith('.githubusercontent.com'))
-  } catch {
-    return false
+const notesText = (notes: unknown): string => {
+  if (typeof notes === 'string') return notes
+  if (Array.isArray(notes)) return notes.map((entry) => String(entry?.note ?? '')).join('\n\n')
+  return ''
+}
+
+const errorText = (err: unknown): string => {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|net::/i.test(message)) return 'Could not reach GitHub. Check your connection and try again.'
+  if (/sha512|checksum/i.test(message)) return 'The download did not match the release and was discarded. Try again.'
+  return message.split('\n')[0].slice(0, 200)
+}
+
+/** Connects electron-updater to the renderer once. */
+export function initUpdater(notify: (info: UpdateInfo) => void, onBeforeInstall: () => void): void {
+  send = notify
+  beforeInstall = onBeforeInstall
+  if (wired || !canSelfUpdate()) return
+  wired = true
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.allowPrerelease = false
+  autoUpdater.logger = null
+  // For testing against a local server: MEOWPLAYER_UPDATE_FEED=http://localhost:8080/
+  if (process.env.MEOWPLAYER_UPDATE_FEED) {
+    autoUpdater.forceDevUpdateConfig = true
+    autoUpdater.setFeedURL({ provider: 'generic', url: process.env.MEOWPLAYER_UPDATE_FEED })
+  }
+
+  autoUpdater.on('download-progress', (progress) => {
+    publish({
+      status: 'downloading',
+      progress: {
+        percent: Math.max(0, Math.min(100, progress.percent)),
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      },
+    })
+  })
+  autoUpdater.on('update-downloaded', () => publish({ status: 'downloaded', progress: null, error: null }))
+  autoUpdater.on('error', (err) => {
+    if (current?.status === 'downloading') publish({ status: 'error', error: errorText(err), progress: null })
+  })
+}
+
+/** The GitHub API check, used by development builds that cannot self-update. */
+async function checkGitHub(): Promise<UpdateInfo | null> {
+  const response = await net.fetch(API, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'MeowPlayer' } })
+  if (!response.ok) return null
+  const data = (await response.json()) as Record<string, unknown>
+  if (data.draft || data.prerelease) return null
+  const version = String(data.tag_name ?? '').replace(/^v\.?/i, '')
+  if (!version) return null
+  return {
+    current: app.getVersion(),
+    version,
+    available: isNewer(version, app.getVersion()),
+    notes: String(data.body ?? '').slice(0, 4000),
+    pageUrl: typeof data.html_url === 'string' ? data.html_url : RELEASES,
+    assetUrl: null,
+    status: 'available',
+    progress: null,
+    error: null,
+    canSelfUpdate: false,
   }
 }
 
-/** Checks GitHub for a newer release. `force` skips the auto-check and snooze gates. */
+/** Checks for a newer release. `force` skips the auto-check and snooze gates. */
 export async function check(force = false): Promise<UpdateInfo | null> {
   const settings = settingsOf()
   if (!force) {
@@ -56,90 +140,72 @@ export async function check(force = false): Promise<UpdateInfo | null> {
     const saved = typeof settings.updateSnoozedUntil === 'number' ? settings.updateSnoozedUntil : 0
     if (Math.max(sessionSnooze, saved) > Date.now()) return null
   }
+  // A download in progress or ready to install is the answer to any check.
+  if (current && (current.status === 'downloading' || current.status === 'downloaded')) return current
 
   try {
-    const response = await net.fetch(API, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'MeowPlayer' },
-    })
-    if (!response.ok) {
-      console.warn('[update] GitHub answered', response.status)
-      return null
+    if (!canSelfUpdate()) {
+      current = await checkGitHub()
+      return current
     }
-    const data = (await response.json()) as Record<string, unknown>
-    if (data.draft || data.prerelease) return null
-    const version = String(data.tag_name ?? data.name ?? '').replace(/^v\.?/i, '')
-    if (!version) return null
-
-    const assets = (Array.isArray(data.assets) ? data.assets : []) as ReleaseAsset[]
-    const installer = assets.find((asset) => /\.exe$/i.test(String(asset?.name ?? '')))
-    const assetUrl = installer?.browser_download_url && isGitHubUrl(installer.browser_download_url)
-      ? installer.browser_download_url
-      : null
-    const digest = typeof installer?.digest === 'string' && installer.digest.startsWith('sha256:')
-      ? installer.digest.slice('sha256:'.length).toLowerCase()
-      : null
-
-    const info: UpdateInfo = {
+    const result = await autoUpdater.checkForUpdates()
+    if (!result) return null
+    const info = result.updateInfo
+    current = {
       current: app.getVersion(),
-      version,
-      available: isNewer(version, app.getVersion()),
-      notes: String(data.body ?? '').slice(0, 4000),
-      pageUrl: typeof data.html_url === 'string' && isGitHubUrl(data.html_url) ? data.html_url : RELEASES,
-      assetUrl,
+      version: info.version,
+      available: result.isUpdateAvailable,
+      notes: notesText(info.releaseNotes).slice(0, 4000),
+      pageUrl: `https://github.com/${REPO}/releases/tag/v${info.version}`,
+      assetUrl: null,
+      status: 'available',
+      progress: null,
+      error: null,
+      canSelfUpdate: true,
     }
-    latest = { info, sha256: digest }
-    return info
+    return current
   } catch (err) {
     console.warn('[update] check failed', err)
     return null
   }
 }
 
+/** Starts downloading the update found by the last check. */
+export async function download(): Promise<{ ok: boolean; error?: string }> {
+  if (!current?.available) return { ok: false, error: 'Check for updates first' }
+  if (!current.canSelfUpdate) {
+    openReleasePage(current.pageUrl)
+    return { ok: false, error: 'Opened the release page in your browser' }
+  }
+  if (current.status === 'downloading' || current.status === 'downloaded') return { ok: true }
+  publish({ status: 'downloading', progress: { percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 }, error: null })
+  try {
+    await autoUpdater.downloadUpdate()
+    return { ok: true }
+  } catch (err) {
+    const error = errorText(err)
+    publish({ status: 'error', error, progress: null })
+    return { ok: false, error }
+  }
+}
+
 /**
- * Hidden for the next `days` days. Returns the timestamp so the renderer can
- * persist it with the rest of the settings.
+ * Restarts into the downloaded update. Windows asks for permission, since
+ * MeowPlayer is installed in Program Files; the app reopens afterwards.
  */
+export function install(): { ok: boolean; error?: string } {
+  if (current?.status !== 'downloaded') return { ok: false, error: 'The update has not finished downloading' }
+  beforeInstall()
+  setImmediate(() => autoUpdater.quitAndInstall(true, true))
+  return { ok: true }
+}
+
+/** Hidden for the next `days` days; returns the timestamp for the renderer to save. */
 export function snooze(days: number): number {
   sessionSnooze = Date.now() + Math.max(1, days) * 24 * 60 * 60 * 1000
   return sessionSnooze
 }
 
 export function openReleasePage(url?: string): void {
-  void shell.openExternal(url && isGitHubUrl(url) ? url : RELEASES)
-}
-
-/**
- * Downloads the installer from the release found by the last check, verifies
- * its SHA-256 against the digest GitHub publishes, opens it (Windows asks for
- * permission, since MeowPlayer installs into Program Files) and quits so the
- * installer can replace the running files.
- */
-export async function install(): Promise<{ ok: boolean; file?: string; error?: string }> {
-  const release = latest
-  if (!release?.info.available) return { ok: false, error: 'Check for updates first' }
-  if (!release.info.assetUrl) {
-    openReleasePage(release.info.pageUrl)
-    return { ok: false, error: 'Opened the release page in your browser' }
-  }
-
-  try {
-    const response = await net.fetch(release.info.assetUrl, { headers: { 'User-Agent': 'MeowPlayer' } })
-    if (!response.ok) return { ok: false, error: `Download failed (HTTP ${response.status})` }
-    const buffer = Buffer.from(await response.arrayBuffer())
-
-    if (release.sha256) {
-      const actual = crypto.createHash('sha256').update(buffer).digest('hex')
-      if (actual !== release.sha256) return { ok: false, error: 'The download was corrupted, please try again' }
-    }
-
-    const safeVersion = release.info.version.replace(/[^0-9a-z.-]/gi, '')
-    const file = path.join(app.getPath('temp'), `MeowPlayer-Setup-${safeVersion}.exe`)
-    await fs.promises.writeFile(file, buffer)
-    const error = await shell.openPath(file)
-    if (error) return { ok: false, error }
-    setTimeout(() => app.quit(), 800)
-    return { ok: true, file }
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Download failed' }
-  }
+  void shell.openExternal(url?.startsWith('https://github.com/') ? url : RELEASES)
 }

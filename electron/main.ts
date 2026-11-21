@@ -623,6 +623,7 @@ function registerIpc(): void {
 
   ipcMain.handle('update:check', (_e, force: unknown) => updater.check(Boolean(force)))
   ipcMain.handle('update:snooze', (_e, days: unknown) => updater.snooze(Number(days) || 7))
+  ipcMain.handle('update:download', () => updater.download())
   ipcMain.handle('update:install', () => updater.install())
   ipcMain.handle('update:open', (_e, url: unknown) => updater.openReleasePage(typeof url === 'string' ? url : undefined))
 
@@ -690,6 +691,14 @@ if (!app.requestSingleInstanceLock()) {
     registerMediaProtocol()
     registerIpc()
     registerDefaultApps()
+    updater.initUpdater(
+      (info) => sendToRenderer('update:status', info),
+      // Restarting into an update closes every window first; close-to-tray must not stop it.
+      () => {
+        quitting = true
+        flush()
+      },
+    )
 
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) =>
       callback(ALLOWED_PERMISSIONS.has(permission)),

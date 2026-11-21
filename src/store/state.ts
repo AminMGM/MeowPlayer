@@ -161,6 +161,7 @@ export interface SettingsSlice {
   saveEqPreset: (name: string) => void
   deleteEqPreset: (name: string) => void
   checkUpdates: (force?: boolean) => Promise<void>
+  downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   snoozeUpdate: (days?: number) => Promise<void>
 }

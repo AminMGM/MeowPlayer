@@ -83,9 +83,11 @@ contextBridge.exposeInMainWorld('api', {
   updates: {
     check: (force: boolean): Promise<unknown> => ipcRenderer.invoke('update:check', force),
     snooze: (days: number): Promise<number> => ipcRenderer.invoke('update:snooze', days),
-    install: (): Promise<{ ok: boolean; file?: string; error?: string }> => ipcRenderer.invoke('update:install'),
+    download: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('update:download'),
+    install: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('update:install'),
     openRelease: (url: string): Promise<void> => ipcRenderer.invoke('update:open', url),
     onAvailable: (cb: (info: unknown) => void): Unsubscribe => on('update:available', cb),
+    onStatus: (cb: (info: unknown) => void): Unsubscribe => on('update:status', cb),
   },
   onPlayerCommand: (cb: (command: string) => void): Unsubscribe => on('player:cmd', cb),
   onOpenFiles: (cb: (paths: string[]) => void): Unsubscribe => on('open-files', cb),

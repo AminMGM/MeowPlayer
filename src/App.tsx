@@ -114,7 +114,25 @@ function MainApp() {
     const offFiles = api.onOpenFiles((paths) => void getStore().openFiles(paths))
     const offUpdate = api.updates.onAvailable((info) => {
       useStore.setState({ update: info })
-      if (info?.available) getStore().showToast(`MeowPlayer ${info.version} is available`, { kind: 'info' })
+      if (info?.available) {
+        getStore().showToast(`MeowPlayer ${info.version} is available`, {
+          kind: 'info',
+          action: { label: 'Details', run: () => getStore().setSettingsOpen(true, 'system') },
+        })
+      }
+    })
+    const offUpdateStatus = api.updates.onStatus((info) => {
+      const previous = getStore().update?.status
+      useStore.setState({ update: info })
+      if (info.status === 'downloaded' && previous !== 'downloaded') {
+        // "Ready to install" replaces the earlier "is available" message.
+        useStore.setState({ toasts: getStore().toasts.filter((toast) => !toast.message.endsWith('is available')) })
+        getStore().showToast(`MeowPlayer ${info.version} is ready to install`, {
+          kind: 'success',
+          duration: 12000,
+          action: { label: 'Restart now', run: () => void getStore().installUpdate() },
+        })
+      }
     })
     // The close dialog's "remember my choice" lands here so the next save keeps it.
     const offClose = api.ui.onCloseBehavior((value) => {
@@ -129,6 +147,7 @@ function MainApp() {
       offCommand()
       offFiles()
       offUpdate()
+      offUpdateStatus()
       offClose()
       offPause()
       offMini()

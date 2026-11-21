@@ -215,6 +215,11 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
     }
   },
 
+  downloadUpdate: async () => {
+    const result = await api.updates.download()
+    if (!result.ok) get().showToast(result.error ?? 'Could not download the update', { kind: 'error' })
+  },
+
   installUpdate: async () => {
     const result = await api.updates.install()
     if (!result.ok) get().showToast(result.error ?? 'Could not start the update', { kind: 'error' })

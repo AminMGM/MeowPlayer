@@ -438,6 +438,93 @@ function Library() {
   )
 }
 
+const formatBytes = (bytes: number): string => {
+  if (!bytes) return '0 MB'
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+/** Available, downloading (only the changed parts), ready to install, or failed. */
+function UpdateCard() {
+  const info = useStore((state) => state.update)
+  const s = getStore()
+  if (!info) return null
+  const { status, progress } = info
+
+  const title =
+    status === 'downloaded'
+      ? `MeowPlayer ${info.version} is ready to install`
+      : status === 'downloading'
+        ? `Downloading MeowPlayer ${info.version}`
+        : `MeowPlayer ${info.version} is available`
+
+  const help =
+    status === 'downloaded'
+      ? 'Restart now, or it installs the next time you quit MeowPlayer. Windows asks for permission.'
+      : status === 'downloading'
+        ? 'Only the parts that changed are downloaded. You can keep listening meanwhile.'
+        : status === 'error'
+          ? info.error ?? 'The download failed.'
+          : `You have ${info.current}.`
+
+  return (
+    <div className={cx('update-card', status)}>
+      <div className="update-head">
+        <img className="update-logo" src={updateLogo} alt="" draggable={false} />
+        <div>
+          <span className="setting-label">{title}</span>
+          <span className={cx('setting-help', status === 'error' && 'error-text')}>{help}</span>
+        </div>
+      </div>
+
+      {status === 'downloading' && (
+        <div className="update-progress">
+          <div
+            className="progress wide"
+            role="progressbar"
+            aria-label="Download progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress?.percent ?? 0)}
+          >
+            <span style={{ width: `${progress?.percent ?? 0}%` }} />
+          </div>
+          <span className="update-progress-text">
+            {progress && progress.total
+              ? `${formatBytes(progress.transferred)} of ${formatBytes(progress.total)}${
+                  progress.bytesPerSecond ? ` · ${formatBytes(progress.bytesPerSecond)}/s` : ''
+                }`
+              : 'Starting…'}
+          </span>
+        </div>
+      )}
+
+      {info.notes && status !== 'downloading' && <p className="update-notes">{info.notes}</p>}
+
+      <div className="setting-actions">
+        {status === 'downloaded' ? (
+          <button type="button" className="btn primary small" onClick={() => void s.installUpdate()}>
+            <Icon name="refresh" size={14} /> Restart to update
+          </button>
+        ) : status === 'downloading' ? null : (
+          <button type="button" className="btn primary small" onClick={() => void s.downloadUpdate()}>
+            <Icon name="download" size={14} />{' '}
+            {status === 'error' ? 'Try again' : info.canSelfUpdate ? 'Download update' : 'Get the update'}
+          </button>
+        )}
+        {status === 'available' && (
+          <button type="button" className="btn ghost small" onClick={() => void s.snoozeUpdate(7)}>
+            Remind me in a week
+          </button>
+        )}
+        <button type="button" className="btn ghost small" onClick={() => void api.updates.openRelease(info.pageUrl)}>
+          Release notes
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function System() {
   const settings = useStore((state) => state.settings)
   const update = useStore((state) => state.updateSettings)
@@ -466,27 +553,7 @@ function System() {
           <Toggle label="Check for updates" on={settings.updateCheck} onChange={(value) => update({ updateCheck: value })} />
         </Row>
         {info?.available ? (
-          <div className="update-card">
-            <div className="update-head">
-              <img className="update-logo" src={updateLogo} alt="" draggable={false} />
-              <div>
-                <span className="setting-label">MeowPlayer {info.version} is available</span>
-                <span className="setting-help">You have {info.current}.</span>
-              </div>
-            </div>
-            {info.notes && <p className="update-notes">{info.notes}</p>}
-            <div className="setting-actions">
-              <button type="button" className="btn primary small" onClick={() => void s.installUpdate()}>
-                <Icon name="download" size={14} /> Install update
-              </button>
-              <button type="button" className="btn ghost small" onClick={() => void s.snoozeUpdate(7)}>
-                Remind me in a week
-              </button>
-              <button type="button" className="btn ghost small" onClick={() => void api.updates.openRelease(info.pageUrl)}>
-                Release notes
-              </button>
-            </div>
-          </div>
+          <UpdateCard />
         ) : (
           <Row label={`Version ${version}`} help="You are on the latest version unless a check says otherwise.">
             <button type="button" className="btn ghost small" onClick={() => void s.checkUpdates(true)} disabled={checking}>

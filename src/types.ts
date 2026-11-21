@@ -206,6 +206,8 @@ export interface MiniState {
   lyricsOn: boolean
 }
 
+export type UpdateStatus = 'available' | 'downloading' | 'downloaded' | 'error'
+
 export interface UpdateInfo {
   current: string
   version: string
@@ -213,6 +215,11 @@ export interface UpdateInfo {
   notes: string
   pageUrl: string
   assetUrl: string | null
+  status: UpdateStatus
+  progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null
+  error: string | null
+  /** False in development builds, which only link to the release page. */
+  canSelfUpdate: boolean
 }
 
 export interface AlbumGroup {

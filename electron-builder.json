@@ -61,6 +61,15 @@
     "installerSidebar": "build/installerSidebar.bmp",
     "uninstallerSidebar": "build/uninstallerSidebar.bmp",
     "installerHeader": "build/installerHeader.bmp",
-    "uninstallDisplayName": "MeowPlayer"
-  }
+    "uninstallDisplayName": "MeowPlayer",
+    "differentialPackage": true
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "AminMGM",
+      "repo": "MeowPlayer",
+      "releaseType": "release"
+    }
+  ]
 }
