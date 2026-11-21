@@ -25,12 +25,13 @@ version and offers the `.exe` asset.
    git push origin main v<version>
    ```
 
-5. Create the release on GitHub for that tag, paste the changelog section as the description and attach
-   `MeowPlayer-Setup-<version>.exe`. Do not mark it as a pre-release; the updater ignores drafts and
-   pre-releases.
+5. Create the release on GitHub for that tag and paste the changelog section as the description. Do not
+   mark it as a pre-release; the updater ignores drafts and pre-releases. Publishing it starts the
+   **Release** workflow, which builds `MeowPlayer-Setup-<version>.exe` on GitHub and attaches it. To
+   rebuild the installer for an existing release, run the workflow by hand from the Actions tab.
 
 GitHub publishes a SHA-256 digest for every release asset. The updater verifies the downloaded installer
-against it before running it, so always upload the exact file you tested.
+against it before running it, so the file people download is always the exact one the workflow built.
 
 ## Testing the updater
 
