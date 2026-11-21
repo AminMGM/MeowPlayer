@@ -15,7 +15,27 @@ export interface Track {
   discNo: number | null
   cover: string | null
   size: number
+  /** File modification time in ms, used to skip unchanged files on a rescan. */
+  mtime?: number
+  /** ReplayGain values in dB, when the file carries them. */
+  trackGain?: number | null
+  albumGain?: number | null
   addedAt: number
+}
+
+/** Fields the tag editor can change. */
+export interface TagEdit {
+  title?: string
+  artist?: string
+  albumArtist?: string
+  album?: string
+  genre?: string
+  year?: number | null
+}
+
+export interface ScanResult {
+  tracks: Track[]
+  kept: string[]
 }
 
 export interface Playlist {
@@ -37,9 +57,14 @@ export interface HistoryEntry {
   at: number
 }
 
+export type CloseBehavior = 'ask' | 'tray' | 'quit'
+export type VisualizerStyle = 'bars' | 'ribbon' | 'aurora' | 'filament'
+export type ThemeName = 'system' | 'graphite' | 'light' | 'cherry' | 'navy'
+export type NormalizeMode = 'off' | 'track' | 'album'
+
 export interface Settings {
   accent: string
-  gradient: string
+  gradient: ThemeName
   blur: number
   animations: boolean
   volume: number
@@ -55,39 +80,45 @@ export interface Settings {
   visualizerStyle: VisualizerStyle
   /** Collapse tracks that share a title and artist in the Songs view. */
   hideDuplicates: boolean
-  /** Interface scale, 0.85–1.25. */
+  /** Interface zoom from 0.8 to 1.4, or 0 to size the interface to the window. */
   uiScale: number
   /** Windows notification when the track changes. */
   notifications: boolean
-  /** Tint the interface from the current cover artwork. */
+  /** Tint the accent from the current cover artwork. */
   albumTheming: boolean
+  /** Blurred cover artwork behind the whole interface. */
+  ambientArt: boolean
   /** Check GitHub for a newer release on launch. */
   updateCheck: boolean
   updateSnoozedUntil: number | null
   crossfade: number
+  /** Loudness normalisation from ReplayGain tags. */
+  normalize: NormalizeMode
+  /** Start the next track the moment the current one ends. */
+  gapless: boolean
   amplify: boolean
+  /** Show lyrics at all. */
   lyrics: boolean
-  /** Fetch and cache lyrics in the background when a track starts. */
+  /** Look lyrics up as each track starts (otherwise only on request). */
   autoLyrics: boolean
   miniLyrics: boolean
   collapsedSidebar: boolean
+  /** Rescan automatically when files change in a library folder. */
+  watchFolders: boolean
   closeBehavior: CloseBehavior
   /** First launch and previous launch, used by the Home greeting. */
   firstOpenedAt: number | null
   lastOpenedAt: number | null
   lastGreetingId: number | null
-  /** legacy field kept only so older saved settings can be migrated */
+  /** Legacy field, only read to migrate settings from 1.x. */
   closeToTray?: boolean
   sinkId: string
 }
 
-export type CloseBehavior = 'ask' | 'tray' | 'quit'
-
-export type VisualizerStyle = 'bars' | 'ribbon' | 'aurora' | 'filament'
-
 export type RepeatMode = 'off' | 'all' | 'one'
 export type DockTab = 'queue' | 'lyrics' | 'eq'
 export type SleepMode = 'off' | 'time' | 'track'
+export type SmartList = 'recent-added' | 'most-played' | 'recent-played'
 
 export type View =
   | { kind: 'home' }
@@ -98,16 +129,19 @@ export type View =
   | { kind: 'artist'; id: string }
   | { kind: 'playlists' }
   | { kind: 'playlist'; id: string }
+  | { kind: 'smart'; id: SmartList }
   | { kind: 'favorites' }
   | { kind: 'folders' }
   | { kind: 'folder'; id: string }
   | { kind: 'genres' }
   | { kind: 'genre'; id: string }
   | { kind: 'nowplaying' }
+  | { kind: 'stats' }
   | { kind: 'search' }
 
 export interface LyricsLine {
   time: number
+  /** Empty for an instrumental gap. */
   text: string
 }
 
@@ -135,6 +169,28 @@ export interface ExternalTrack {
   track: Track
 }
 
+/** A track list the context menu was opened from, so "Play" keeps the context. */
+export interface TrackContext {
+  ids: string[]
+  index: number
+}
+
+export interface ContextMenuState {
+  x: number
+  y: number
+  trackIds: string[]
+  context?: TrackContext
+}
+
+export type ToastKind = 'success' | 'error' | 'info'
+
+export interface Toast {
+  id: number
+  message: string
+  kind: ToastKind
+  action?: { label: string; run: () => void }
+}
+
 export interface MiniState {
   trackId: string | null
   title: string
@@ -147,6 +203,7 @@ export interface MiniState {
   liked: boolean
   external: boolean
   lyric: string | null
+  lyricsOn: boolean
 }
 
 export interface UpdateInfo {

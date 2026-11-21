@@ -1,0 +1,188 @@
+/*
+ * Design tokens. Every colour in the app comes from here; the four themes only
+ * redefine these variables. The accent is a registered property so it can
+ * glide from one album's colour to the next.
+ */
+
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #a3b7c9;
+}
+
+:root {
+  /* accent: set by the app (swatch or album art) */
+  --accent: #a3b7c9;
+  --accent-ui: var(--accent);
+  --accent-fill: var(--accent);
+  --accent-ink: #0b0e12;
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-strong: color-mix(in oklab, var(--accent) 30%, transparent);
+  --accent-glow: color-mix(in oklab, var(--accent) 30%, transparent);
+
+  /* type */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13px;
+  --fs-lg: 14.5px;
+  --fs-xl: 16.5px;
+  --fs-2xl: 22px;
+  --fs-3xl: clamp(24px, 2vw, 32px);
+
+  /* space and shape */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --r-xs: 6px;
+  --r-sm: 9px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* sizes */
+  --titlebar-h: 46px;
+  --player-h: 78px;
+  --sidebar-w: 216px;
+  --sidebar-w-collapsed: 60px;
+  --dock-w: clamp(270px, 22vw, 340px);
+  --control-h: 32px;
+  --control-h-sm: 28px;
+
+  /* motion */
+  --ease: cubic-bezier(0.22, 0.68, 0.28, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fast: 140ms;
+  --medium: 240ms;
+  --slow: 600ms;
+
+  --blur: 38px;
+}
+
+/*
+ * The themes are the four from MeowPlayer 1.8.5: frosted glass over the
+ * Windows acrylic backdrop, told apart only by the tint of the shell and the
+ * soft light drifting behind it. "System" picks Graphite or Light to follow
+ * Windows.
+ */
+
+/* ------------------------------ graphite (default) ------------------------------ */
+
+:root,
+[data-theme='graphite'] {
+  --controls-scheme: dark;
+  --text: rgba(255, 255, 255, 0.92);
+  --text-2: rgba(255, 255, 255, 0.58);
+  --text-3: rgba(255, 255, 255, 0.36);
+  --line: rgba(255, 255, 255, 0.055);
+  --line-strong: rgba(255, 255, 255, 0.12);
+
+  --shell: rgba(13, 15, 19, 0.62);
+  --surface-1: rgba(255, 255, 255, 0.014);
+  --surface-2: rgba(255, 255, 255, 0.038);
+  --surface-3: rgba(0, 0, 0, 0.16);
+  --card: rgba(255, 255, 255, 0.032);
+  --card-hover: rgba(255, 255, 255, 0.06);
+  --hover: rgba(255, 255, 255, 0.055);
+  --active: rgba(255, 255, 255, 0.085);
+  --field: rgba(255, 255, 255, 0.05);
+  --panel: rgba(20, 23, 28, 0.96);
+  --panel-line: rgba(255, 255, 255, 0.12);
+  --scrim: rgba(4, 6, 9, 0.5);
+  --shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.32);
+  --art-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+
+  --wash-1: rgba(96, 118, 138, 0.2);
+  --wash-2: rgba(64, 82, 98, 0.16);
+  --ambient-opacity: 0.16;
+  --ambient-filter: blur(100px) saturate(1) brightness(0.6);
+  --veil: linear-gradient(180deg, transparent, rgba(8, 10, 14, 0.12));
+
+  /* Primary buttons are the frosted white of 1.8.5, not the accent. */
+  --primary-bg: linear-gradient(150deg, #f2f6f9, #cbd7e0);
+  --primary-bg-hover: linear-gradient(150deg, #ffffff, #d7e2ea);
+  --primary-ink: #10151a;
+  --primary-shadow: 0 6px 18px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  --danger: #e8aab0;
+  --success: #9fd4b6;
+  --warning: #e8c98f;
+  --liked: #e2a6ad;
+}
+
+/* --------------------------------- cherry --------------------------------- */
+
+/* Deep wine shell with a warm red wash. */
+[data-theme='cherry'] {
+  --shell: rgba(26, 10, 14, 0.66);
+  --wash-1: rgba(168, 40, 58, 0.3);
+  --wash-2: rgba(112, 24, 38, 0.26);
+}
+
+/* ---------------------------------- navy ---------------------------------- */
+
+/* Midnight blue shell with a cold blue wash. */
+[data-theme='navy'] {
+  --shell: rgba(9, 14, 27, 0.7);
+  --wash-1: rgba(52, 84, 168, 0.32);
+  --wash-2: rgba(28, 50, 108, 0.28);
+}
+
+/* ---------------------------------- light --------------------------------- */
+
+/* A paper-grey shell with dark ink. */
+[data-theme='light'] {
+  --controls-scheme: light;
+  --accent-ui: color-mix(in oklab, var(--accent) 55%, #0a0d12);
+  --accent-fill: color-mix(in oklab, var(--accent) 60%, #0a0d12);
+  --accent-ink: #ffffff;
+  --accent-soft: color-mix(in oklab, var(--accent-ui) 12%, transparent);
+  --accent-strong: color-mix(in oklab, var(--accent-ui) 26%, transparent);
+
+  --text: rgba(18, 22, 28, 0.94);
+  --text-2: rgba(18, 22, 28, 0.62);
+  --text-3: rgba(18, 22, 28, 0.44);
+  --line: rgba(12, 16, 22, 0.09);
+  --line-strong: rgba(12, 16, 22, 0.16);
+
+  --shell: rgba(238, 241, 245, 0.88);
+  --surface-1: rgba(18, 22, 28, 0.035);
+  --surface-2: rgba(18, 22, 28, 0.06);
+  --surface-3: rgba(18, 22, 28, 0.09);
+  --card: rgba(18, 22, 28, 0.05);
+  --card-hover: rgba(18, 22, 28, 0.08);
+  --hover: rgba(18, 22, 28, 0.06);
+  --active: rgba(18, 22, 28, 0.09);
+  --field: rgba(18, 22, 28, 0.05);
+  --panel: rgba(249, 250, 252, 0.97);
+  --panel-line: rgba(18, 22, 28, 0.12);
+  --scrim: rgba(12, 16, 22, 0.32);
+  --shadow: 0 30px 70px rgba(15, 20, 30, 0.24);
+  --shadow-sm: 0 6px 18px rgba(15, 20, 30, 0.12);
+  --art-shadow: 0 10px 24px rgba(15, 20, 30, 0.18);
+
+  --wash-1: rgba(150, 172, 198, 0.42);
+  --wash-2: rgba(196, 210, 224, 0.38);
+  --ambient-opacity: 0.14;
+  --ambient-filter: blur(100px) saturate(1) brightness(1.15);
+  --veil: linear-gradient(180deg, transparent, rgba(244, 246, 250, 0.2));
+
+  --primary-bg: linear-gradient(150deg, #2a323d, #151a21);
+  --primary-bg-hover: linear-gradient(150deg, #36404d, #1b2129);
+  --primary-ink: #f4f7fa;
+  --primary-shadow: 0 6px 18px rgba(15, 20, 30, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+
+  --danger: #b4384b;
+  --success: #1f8a58;
+  --warning: #a86a00;
+  --liked: #c9506a;
+}

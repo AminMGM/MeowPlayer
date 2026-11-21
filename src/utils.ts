@@ -27,7 +27,11 @@ export function formatTotalDuration(seconds: number): string {
   return `${total} sec`
 }
 
-export function albumKey(track: Track): string {
+export function plural(count: number, word: string, many = `${word}s`): string {
+  return `${count.toLocaleString()} ${count === 1 ? word : many}`
+}
+
+export function albumKey(track: Pick<Track, 'albumArtist' | 'album'>): string {
   return `${track.albumArtist}|||${track.album}`
 }
 
@@ -66,6 +70,11 @@ export function groupAlbums(tracks: Track[]): AlbumGroup[] {
   return groups
 }
 
+/** True when a track belongs to an artist, either as performer or as album artist. */
+export function isByArtist(track: Track, artist: string): boolean {
+  return track.artist === artist || track.albumArtist === artist
+}
+
 export function groupArtists(tracks: Track[]): { name: string; tracks: Track[]; albums: number }[] {
   const map = new Map<string, Track[]>()
   for (const track of tracks) {
@@ -74,11 +83,7 @@ export function groupArtists(tracks: Track[]): { name: string; tracks: Track[]; 
     else map.set(track.artist, [track])
   }
   return [...map.entries()]
-    .map(([name, list]) => ({
-      name,
-      tracks: list,
-      albums: new Set(list.map((t) => albumKey(t))).size,
-    }))
+    .map(([name, list]) => ({ name, tracks: list, albums: new Set(list.map((t) => albumKey(t))).size }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -95,11 +100,18 @@ export function groupGenres(tracks: Track[]): { name: string; tracks: Track[] }[
     .sort((a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name))
 }
 
+const trimSeparators = (value: string): string => value.replace(/[\\/]+$/, '')
+
+/** True when `child` is `folder` itself or sits somewhere inside it. */
+export function isInFolder(child: string, folder: string): boolean {
+  const base = trimSeparators(folder).toLowerCase()
+  const target = child.toLowerCase()
+  if (!base) return false
+  return target === base || target.startsWith(`${base}\\`) || target.startsWith(`${base}/`)
+}
+
 export function folderRoot(track: Track, folders: string[]): string {
-  const normalized = track.path.toLowerCase()
-  const match = folders
-    .filter((folder) => normalized.startsWith(folder.toLowerCase().replace(/[\\/]+$/, '')))
-    .sort((a, b) => b.length - a.length)[0]
+  const match = folders.filter((folder) => isInFolder(track.path, folder)).sort((a, b) => b.length - a.length)[0]
   if (match) return match
   const parts = track.path.split(/[\\/]/)
   return parts.slice(0, -1).join('\\') || track.path
@@ -123,12 +135,14 @@ export function folderName(folderPath: string): string {
   return parts[parts.length - 1] ?? folderPath
 }
 
-/**
- * Pulls a representative accent colour out of cover artwork: biased toward
- * saturated, mid-bright pixels so the result works on the dark glass shell.
- */
+/* -------------------------------- colour -------------------------------- */
+
 const accentCache = new Map<string, string | null>()
 
+/**
+ * Pulls a representative accent colour out of cover artwork, biased toward
+ * saturated, mid-bright pixels so the result reads well on the dark shell.
+ */
 export async function extractAccent(src: string): Promise<string | null> {
   if (accentCache.has(src)) return accentCache.get(src) ?? null
   try {
@@ -139,7 +153,7 @@ export async function extractAccent(src: string): Promise<string | null> {
     const canvas = document.createElement('canvas')
     canvas.width = 24
     canvas.height = 24
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
     if (!ctx) return null
     ctx.drawImage(image, 0, 0, 24, 24)
     const { data } = ctx.getImageData(0, 0, 24, 24)
@@ -160,33 +174,76 @@ export async function extractAccent(src: string): Promise<string | null> {
       b += data[i + 2] * weight
       total += weight
     }
-    if (!total) return null
-
-    const toHex = (value: number): string =>
-      Math.round(Math.max(28, Math.min(225, value)))
-        .toString(16)
-        .padStart(2, '0')
-    const color = `#${toHex(r / total)}${toHex(g / total)}${toHex(b / total)}`
+    if (!total) {
+      accentCache.set(src, null)
+      return null
+    }
+    const color = softenColor(r / total, g / total, b / total)
     accentCache.set(src, color)
     return color
   } catch {
-    // Unreadable artwork (a broken file or a tainted canvas) is remembered so
-    // the same cover is not decoded again on every track change.
+    // Unreadable artwork is remembered so it is not decoded on every change.
     accentCache.set(src, null)
     return null
   }
 }
 
-/** Writes an accent colour and its soft/strong variants to the CSS variables. */
-export function applyAccent(hex: string): void {
-  const root = document.documentElement
-  root.style.setProperty('--accent', hex)
-  root.style.setProperty('--accent-soft', `${hex}26`)
-  root.style.setProperty('--accent-strong', `${hex}4d`)
+/**
+ * Turns a cover colour into a calm accent: the hue is kept, but saturation is
+ * capped and lightness pinned to a soft pastel range, so album theming tints
+ * the interface instead of flooding it.
+ */
+export function softenColor(r: number, g: number, b: number): string {
+  const rn = r / 255
+  const gn = g / 255
+  const bn = b / 255
+  const max = Math.max(rn, gn, bn)
+  const min = Math.min(rn, gn, bn)
+  const delta = max - min
+  let hue = 0
+  if (delta > 0) {
+    if (max === rn) hue = ((gn - bn) / delta) % 6
+    else if (max === gn) hue = (bn - rn) / delta + 2
+    else hue = (rn - gn) / delta + 4
+    hue *= 60
+    if (hue < 0) hue += 360
+  }
+  const lightness = (max + min) / 2
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1))
+
+  const s = Math.min(saturation, 0.42)
+  const l = Math.min(0.74, Math.max(0.64, lightness))
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1))
+  const m = l - c / 2
+  const [r1, g1, b1] =
+    hue < 60 ? [c, x, 0] : hue < 120 ? [x, c, 0] : hue < 180 ? [0, c, x] : hue < 240 ? [0, x, c] : hue < 300 ? [x, 0, c] : [c, 0, x]
+  const hex = (value: number): string =>
+    Math.round((value + m) * 255)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${hex(r1)}${hex(g1)}${hex(b1)}`
 }
 
+/** Writes the accent colour; the soft and strong variants are derived in CSS. */
+export function applyAccent(hex: string): void {
+  document.documentElement.style.setProperty('--accent', hex)
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '')
+  const value = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean
+  const r = parseInt(value.slice(0, 2), 16)
+  const g = parseInt(value.slice(2, 4), 16)
+  const b = parseInt(value.slice(4, 6), 16)
+  if ([r, g, b].some(Number.isNaN)) return `rgba(163, 183, 201, ${alpha})`
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/* -------------------------------- search -------------------------------- */
+
 export function normalize(value: string): string {
-  return value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  return value.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
 }
 
 export function matches(query: string, ...fields: (string | null | undefined)[]): boolean {
@@ -221,22 +278,29 @@ export function colorFor(value: string): string {
   return PALETTE[hash % PALETTE.length]
 }
 
-/** Parses an LRC file into time-stamped lines. */
+/* -------------------------------- lyrics -------------------------------- */
+
+/**
+ * Parses an LRC file into time-stamped lines. A timestamp with no text marks
+ * an instrumental gap and is kept as an empty line, so the previous lyric does
+ * not stay highlighted through a solo.
+ */
 export function parseLrc(raw: string): LyricsLine[] {
   const lines: LyricsLine[] = []
   for (const line of raw.split(/\r?\n/)) {
     const stamps = [...line.matchAll(/\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g)]
     if (!stamps.length) continue
     const text = line.replace(/\[[^\]]*\]/g, '').trim()
-    if (!text) continue
     for (const stamp of stamps) {
       const minutes = Number(stamp[1])
       const seconds = Number(stamp[2])
-      const fraction = stamp[3] ? Number(`0.${stamp[3].padEnd(2, '0').slice(0, 2)}`) : 0
+      const fraction = stamp[3] ? Number(`0.${stamp[3]}`) : 0
       lines.push({ time: minutes * 60 + seconds + fraction, text })
     }
   }
-  return lines.sort((a, b) => a.time - b.time)
+  lines.sort((a, b) => a.time - b.time)
+  // Drop leading gaps and collapse runs of gaps into one.
+  return lines.filter((line, index) => line.text || (index > 0 && lines[index - 1].text))
 }
 
 export function activeLyricIndex(lines: LyricsLine[], time: number): number {
@@ -247,4 +311,21 @@ export function activeLyricIndex(lines: LyricsLine[], time: number): number {
     else break
   }
   return index
+}
+
+/** How far through the active line playback is, from 0 to 1. */
+export function lyricProgress(lines: LyricsLine[], index: number, time: number): number {
+  const line = lines[index]
+  if (!line) return 0
+  const next = lines[index + 1]
+  const end = next ? next.time : line.time + 5
+  const span = Math.max(0.2, end - line.time)
+  return Math.max(0, Math.min(1, (time - line.time) / span))
+}
+
+export function dayKey(at: number = Date.now()): string {
+  const date = new Date(at)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }

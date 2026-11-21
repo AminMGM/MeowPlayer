@@ -1,17 +1,9 @@
-export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const
+import { EQ_BANDS } from './eq'
 
-export const EQ_PRESETS: { name: string; gains: number[] }[] = [
-  { name: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-  { name: 'Bass Boost', gains: [8, 7, 5.5, 3, 0.5, 0, 0, 0, 0, 0] },
-  { name: 'Treble Boost', gains: [0, 0, 0, 0, 0, 1.5, 3, 5, 7, 8] },
-  { name: 'Vocal', gains: [-2, -1, 0.5, 3, 5, 5, 3, 1, 0, -1] },
-  { name: 'Rock', gains: [5, 4, 2, -1, -2, 0, 2.5, 4.5, 5.5, 5] },
-  { name: 'Pop', gains: [-1, 0, 2, 4, 4.5, 2, -1, -1, 1, 2] },
-  { name: 'Jazz', gains: [3, 2, 1, 2, -1, -1, 0, 1, 2.5, 3.5] },
-  { name: 'Electronic', gains: [6, 5, 1, 0, -2, 1.5, 1, 2, 5, 6] },
-  { name: 'Classical', gains: [4, 3, 2, 1, -1, -1, 0, 2, 3, 4] },
-  { name: 'Lo-Fi', gains: [3, 2, 1, 0, -3, -5, -6, -8, -9, -10] },
-]
+export { EQ_BANDS, EQ_PRESETS } from './eq'
+
+/** How long before the end the next track is buffered for gapless playback. */
+const PRELOAD_LEAD = 12
 
 interface Callbacks {
   time?: (seconds: number, duration: number) => void
@@ -20,30 +12,46 @@ interface Callbacks {
   play?: () => void
   pause?: () => void
   error?: (message: string) => void
-  nearEnd?: (remaining: number) => void
+  /** Fired once per track when the remaining time drops below `transitionLead`. */
+  transition?: () => void
+  /** Fired once per track shortly before the end, to buffer the next track. */
+  preload?: () => void
 }
 
 interface Deck {
   el: HTMLAudioElement
   gain: GainNode | null
-  source: MediaElementAudioSourceNode | null
+  /** Loudness correction for the track on this deck, as a linear factor. */
+  level: number
+  /** URL buffered ahead of time for gapless playback, if any. */
+  preloaded: string | null
 }
 
-interface PlayOptions {
+export interface PlayOptions {
   autoplay?: boolean
   startAt?: number
+  /** Crossfade length in seconds; 0 switches instantly. */
   fade?: number
+  /** Loudness correction in dB from ReplayGain tags. */
+  gainDb?: number | null
 }
 
+const dbToLevel = (db: number | null | undefined): number =>
+  typeof db === 'number' && Number.isFinite(db) ? Math.min(2, Math.max(0.1, 10 ** (db / 20))) : 1
+
 /**
- * Two audio decks feeding one Web Audio graph, so tracks can crossfade:
- *   deck A/B -> deck gain -> preamp -> 10 band EQ -> master -> analyser -> output
+ * Two audio decks feeding one Web Audio graph, so tracks can crossfade and the
+ * next track can be buffered ahead of time:
+ *
+ *   deck A/B -> deck gain -> preamp -> 10-band EQ -> master (volume)
+ *            -> fader (sleep timer) -> analyser -> output
  */
 class AudioEngine {
-  private decks: Deck[] = []
+  private decks: Deck[]
   private active = 0
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
+  private fader: GainNode | null = null
   private analyser: AnalyserNode | null = null
   private filters: BiquadFilterNode[] = []
   private eqGains: number[] = EQ_BANDS.map(() => 0)
@@ -51,53 +59,73 @@ class AudioEngine {
   private muted = false
   private rate = 1
   private sinkId = ''
-  private nearEndFired = false
+  private transitionFired = false
+  private preloadFired = false
+  private fadeTimer: number | null = null
+  /** Bumped by every play() so a slow, stale request can never win a race. */
+  private token = 0
+
+  /** Seconds before the end at which `transition` fires (the crossfade length). */
+  transitionLead = 0
   callbacks: Callbacks = {}
 
   constructor() {
     this.decks = [this.createDeck(), this.createDeck()]
   }
 
+  private get current(): Deck {
+    return this.decks[this.active]
+  }
+
+  private get idle(): Deck {
+    return this.decks[1 - this.active]
+  }
+
   private createDeck(): Deck {
     const el = new Audio()
     el.preload = 'auto'
     el.crossOrigin = 'anonymous'
-    const deck: Deck = { el, gain: null, source: null }
-    const isActive = (): boolean => this.decks[this.active] === deck
+    const deck: Deck = { el, gain: null, level: 1, preloaded: null }
+    const isActive = (): boolean => this.current === deck
 
     el.addEventListener('timeupdate', () => {
       if (!isActive()) return
       const duration = Number.isFinite(el.duration) ? el.duration : 0
       this.callbacks.time?.(el.currentTime, duration)
-      if (!this.nearEndFired && duration > 0) {
-        const remaining = duration - el.currentTime
-        if (remaining > 0.05 && remaining <= 0.35) this.nearEndFired = true
+      if (duration <= 0 || el.paused) return
+      const remaining = duration - el.currentTime
+      if (!this.preloadFired && remaining <= PRELOAD_LEAD) {
+        this.preloadFired = true
+        this.callbacks.preload?.()
+      }
+      if (!this.transitionFired && this.transitionLead > 0.4 && remaining <= this.transitionLead && remaining > 0.2) {
+        this.transitionFired = true
+        this.callbacks.transition?.()
       }
     })
     el.addEventListener('durationchange', () => {
       if (isActive() && Number.isFinite(el.duration)) this.callbacks.duration?.(el.duration)
     })
     el.addEventListener('ended', () => {
-      if (!isActive()) return
-      this.nearEndFired = false
-      this.callbacks.ended?.()
+      if (isActive()) this.callbacks.ended?.()
     })
     el.addEventListener('play', () => {
       if (isActive()) this.callbacks.play?.()
     })
     el.addEventListener('pause', () => {
-      if (isActive()) this.callbacks.pause?.()
+      // An element also pauses itself when it reaches the end; that is not a user pause.
+      if (isActive() && !el.ended) this.callbacks.pause?.()
     })
     el.addEventListener('error', () => {
-      if (!isActive()) return
-      const code = el.error?.code
+      if (!isActive() || !el.getAttribute('src')) return
       const messages: Record<number, string> = {
         1: 'Playback was aborted',
         2: 'Network error while loading the track',
         3: 'This file cannot be decoded',
         4: 'Unsupported audio format or missing file',
       }
-      this.callbacks.error?.(code ? messages[code] ?? 'Unable to play this track' : 'Unable to play this track')
+      const code = el.error?.code
+      this.callbacks.error?.((code && messages[code]) || 'Unable to play this track')
     })
     return deck
   }
@@ -105,19 +133,19 @@ class AudioEngine {
   private ensureGraph(): void {
     if (this.ctx) return
     try {
-      const Ctor: typeof AudioContext =
-        window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      const ctx = new Ctor()
+      const ctx = new AudioContext({ latencyHint: 'playback' })
 
       const preamp = ctx.createGain()
       preamp.gain.value = 0.85
       const master = ctx.createGain()
       master.gain.value = this.gainTarget()
+      const fader = ctx.createGain()
+      fader.gain.value = 1
 
       let node: AudioNode = preamp
       this.filters = EQ_BANDS.map((frequency, index) => {
         const filter = ctx.createBiquadFilter()
-        filter.type = 'peaking'
+        filter.type = index === 0 ? 'lowshelf' : index === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking'
         filter.frequency.value = frequency
         filter.Q.value = 1.1
         filter.gain.value = this.eqGains[index] ?? 0
@@ -130,26 +158,27 @@ class AudioEngine {
       analyser.fftSize = 2048
       analyser.smoothingTimeConstant = 0.82
       node.connect(master)
-      master.connect(analyser)
+      master.connect(fader)
+      fader.connect(analyser)
       analyser.connect(ctx.destination)
 
       for (const deck of this.decks) {
         const source = ctx.createMediaElementSource(deck.el)
         const gain = ctx.createGain()
-        gain.gain.value = 1
+        gain.gain.value = deck === this.current ? deck.level : 0
         source.connect(gain)
         gain.connect(preamp)
-        deck.source = source
         deck.gain = gain
         deck.el.volume = 1
       }
 
       this.ctx = ctx
       this.master = master
+      this.fader = fader
       this.analyser = analyser
       void this.applySink()
     } catch (err) {
-      console.warn('[audio] could not build the equalizer graph', err)
+      console.warn('[audio] could not build the audio graph', err)
     }
   }
 
@@ -167,168 +196,193 @@ class AudioEngine {
     }
   }
 
+  private async wake(): Promise<void> {
+    this.ensureGraph()
+    if (this.ctx?.state === 'suspended') {
+      try {
+        await this.ctx.resume()
+      } catch {
+        /* resumes on the next user gesture */
+      }
+    }
+  }
+
   private async safePlay(el: HTMLAudioElement): Promise<void> {
     try {
       await el.play()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to play this track'
-      if (!message.toLowerCase().includes('interrupted')) this.callbacks.error?.(message)
+      if (!/interrupted|aborted|removed from the document|new load request/i.test(message)) {
+        this.callbacks.error?.(message)
+      }
     }
+  }
+
+  private setDeckGain(deck: Deck, value: number): void {
+    if (deck.gain && this.ctx) {
+      deck.gain.gain.cancelScheduledValues(this.ctx.currentTime)
+      deck.gain.gain.setValueAtTime(value, this.ctx.currentTime)
+    } else {
+      deck.el.volume = Math.min(1, value * Math.min(1, this.gainTarget()))
+    }
+  }
+
+  private load(deck: Deck, url: string, startAt: number): void {
+    if (deck.preloaded !== url) {
+      deck.el.src = url
+      deck.el.load()
+    }
+    deck.preloaded = null
+    deck.el.playbackRate = this.rate
+    deck.el.preservesPitch = true
+    if (startAt > 0) {
+      const seek = (): void => {
+        try {
+          deck.el.currentTime = startAt
+        } catch {
+          /* not seekable */
+        }
+      }
+      if (deck.el.readyState >= 1) seek()
+      else deck.el.addEventListener('loadedmetadata', seek, { once: true })
+    } else if (deck.el.currentTime > 0) {
+      try {
+        deck.el.currentTime = 0
+      } catch {
+        /* not seekable */
+      }
+    }
+  }
+
+  private resetMarkers(): void {
+    this.transitionFired = false
+    this.preloadFired = false
   }
 
   async play(url: string, opts: PlayOptions = {}): Promise<void> {
-    this.ensureGraph()
-    if (this.ctx?.state === 'suspended') {
-      try {
-        await this.ctx.resume()
-      } catch {
-        /* ignore */
-      }
-    }
+    const token = ++this.token
+    await this.wake()
+    if (token !== this.token) return
 
     const fade = opts.fade ?? 0
-    const current = this.decks[this.active]
-    const canCrossfade = fade > 0.4 && Boolean(current.el.src) && !current.el.paused
+    const startAt = opts.startAt ?? 0
+    const level = dbToLevel(opts.gainDb)
+    const from = this.current
+    const canCrossfade = fade > 0.4 && Boolean(from.el.getAttribute('src')) && !from.el.paused && Boolean(this.ctx)
 
-    if (canCrossfade) {
-      await this.crossfadeTo(url, fade, opts.startAt ?? 0)
+    // Crossfades and preloaded (gapless) tracks start on the idle deck.
+    if (canCrossfade || this.idle.preloaded === url) {
+      const to = this.idle
+      to.level = level
+      this.load(to, url, startAt)
+      this.setDeckGain(to, canCrossfade ? 0.0001 : level)
+      this.active = 1 - this.active
+      this.resetMarkers()
+      if (opts.autoplay !== false) await this.safePlay(to.el)
+      if (token !== this.token) return
+
+      if (canCrossfade && this.ctx && to.gain && from.gain) {
+        const now = this.ctx.currentTime
+        const span = Math.max(0.4, fade)
+        to.gain.gain.cancelScheduledValues(now)
+        to.gain.gain.setValueAtTime(0.0001, now)
+        to.gain.gain.linearRampToValueAtTime(level, now + span)
+        from.gain.gain.cancelScheduledValues(now)
+        from.gain.gain.setValueAtTime(Math.max(0.0001, from.gain.gain.value), now)
+        from.gain.gain.linearRampToValueAtTime(0.0001, now + span)
+        window.setTimeout(() => {
+          if (this.current !== from) from.el.pause()
+        }, span * 1000 + 150)
+      } else {
+        from.el.pause()
+        this.setDeckGain(from, 0)
+      }
       return
     }
 
-    const deck = this.decks[this.active]
-    if (deck.gain && this.ctx) {
-      deck.gain.gain.cancelScheduledValues(this.ctx.currentTime)
-      deck.gain.gain.setValueAtTime(1, this.ctx.currentTime)
-    }
-    deck.el.src = url
-    if (opts.startAt && opts.startAt > 0) {
-      const startAt = opts.startAt
-      deck.el.addEventListener(
-        'loadedmetadata',
-        () => {
-          try {
-            deck.el.currentTime = startAt
-          } catch {
-            /* ignore */
-          }
-        },
-        { once: true },
-      )
-    }
-    deck.el.load()
-    deck.el.playbackRate = this.rate
-    this.nearEndFired = false
-    if (opts.autoplay !== false) await this.safePlay(deck.el)
+    // Plain switch on the current deck; silence the other one in case it was mid-crossfade.
+    this.idle.el.pause()
+    this.idle.preloaded = null
+    this.setDeckGain(this.idle, 0)
+    from.level = level
+    this.setDeckGain(from, level)
+    this.load(from, url, startAt)
+    this.resetMarkers()
+    if (opts.autoplay !== false) await this.safePlay(from.el)
   }
 
-  private async crossfadeTo(url: string, seconds: number, startAt: number): Promise<void> {
-    const ctx = this.ctx
-    const current = this.decks[this.active]
-    const nextIndex = 1 - this.active
-    const next = this.decks[nextIndex]
-    if (!ctx) return
-
-    next.el.src = url
-    next.el.load()
-    if (startAt > 0) {
-      next.el.addEventListener(
-        'loadedmetadata',
-        () => {
-          try {
-            next.el.currentTime = startAt
-          } catch {
-            /* ignore */
-          }
-        },
-        { once: true },
-      )
-    }
-    next.el.playbackRate = this.rate
-    if (next.gain) next.gain.gain.setValueAtTime(0.0001, ctx.currentTime)
-
-    await this.safePlay(next.el)
-
-    const now = ctx.currentTime
-    const span = Math.max(0.4, seconds)
-    if (next.gain) {
-      next.gain.gain.cancelScheduledValues(now)
-      next.gain.gain.setValueAtTime(0.0001, now)
-      next.gain.gain.linearRampToValueAtTime(1, now + span)
-    }
-    if (current.gain) {
-      current.gain.gain.cancelScheduledValues(now)
-      current.gain.gain.setValueAtTime(Math.max(0.0001, current.gain.gain.value), now)
-      current.gain.gain.linearRampToValueAtTime(0.0001, now + span)
-    }
-
-    this.active = nextIndex
-    this.nearEndFired = false
-
-    window.setTimeout(() => {
-      if (this.decks[this.active] !== next) return
-      current.el.pause()
-      if (current.gain && this.ctx) current.gain.gain.setValueAtTime(1, this.ctx.currentTime)
-    }, span * 1000 + 150)
+  /** Buffers the next track on the idle deck so it can start without a gap. */
+  preload(url: string): void {
+    const deck = this.idle
+    if (deck.preloaded === url || !deck.el.paused) return
+    deck.preloaded = url
+    deck.el.src = url
+    deck.el.load()
+    this.setDeckGain(deck, 0)
   }
 
   async resume(): Promise<void> {
-    this.ensureGraph()
-    if (this.ctx?.state === 'suspended') {
-      try {
-        await this.ctx.resume()
-      } catch {
-        /* ignore */
-      }
-    }
-    await this.safePlay(this.decks[this.active].el)
+    await this.wake()
+    await this.safePlay(this.current.el)
   }
 
   pause(): void {
-    this.decks[this.active].el.pause()
+    this.current.el.pause()
   }
 
   /**
-   * Ramps the master output down to silence over `seconds`, then pauses. The
-   * gain is restored afterwards so the next play is at normal volume again.
+   * Fades the output to silence over `seconds`, then pauses. The fade runs on
+   * its own gain stage, so changing the volume meanwhile does not cancel it.
    */
   fadeOut(seconds: number, onDone?: () => void): void {
-    const el = this.decks[this.active].el
     const span = Math.max(0.3, seconds)
-    if (!this.ctx || !this.master) {
-      el.pause()
+    if (this.fadeTimer) window.clearTimeout(this.fadeTimer)
+    if (!this.ctx || !this.fader) {
+      this.pause()
       onDone?.()
       return
     }
     const now = this.ctx.currentTime
-    const gain = this.master.gain
+    const gain = this.fader.gain
     gain.cancelScheduledValues(now)
     gain.setValueAtTime(Math.max(0.0001, gain.value), now)
     gain.linearRampToValueAtTime(0.0001, now + span)
-    window.setTimeout(() => {
-      el.pause()
-      if (this.ctx && this.master) {
-        this.master.gain.cancelScheduledValues(this.ctx.currentTime)
-        this.master.gain.setValueAtTime(this.gainTarget(), this.ctx.currentTime)
-      }
+    this.fadeTimer = window.setTimeout(() => {
+      this.fadeTimer = null
+      this.pause()
+      this.cancelFade()
       onDone?.()
     }, span * 1000 + 80)
   }
 
+  /** Stops a running sleep fade and restores full output. */
+  cancelFade(): void {
+    if (this.fadeTimer) {
+      window.clearTimeout(this.fadeTimer)
+      this.fadeTimer = null
+    }
+    if (this.ctx && this.fader) {
+      this.fader.gain.cancelScheduledValues(this.ctx.currentTime)
+      this.fader.gain.setValueAtTime(1, this.ctx.currentTime)
+    }
+  }
+
   stop(): void {
+    this.token += 1
     for (const deck of this.decks) {
       deck.el.pause()
       deck.el.removeAttribute('src')
       deck.el.load()
+      deck.preloaded = null
     }
-    this.nearEndFired = false
+    this.resetMarkers()
   }
 
   seek(seconds: number): void {
-    const deck = this.decks[this.active]
     if (!Number.isFinite(seconds)) return
     try {
-      deck.el.currentTime = Math.max(0, seconds)
-      this.nearEndFired = false
+      this.current.el.currentTime = Math.max(0, seconds)
+      this.resetMarkers()
     } catch {
       /* not seekable yet */
     }
@@ -343,7 +397,7 @@ class AudioEngine {
       this.master.gain.cancelScheduledValues(now)
       this.master.gain.setTargetAtTime(target, now, 0.02)
     } else {
-      this.decks[this.active].el.volume = Math.min(1, target)
+      this.current.el.volume = Math.min(1, target)
     }
   }
 
@@ -355,14 +409,18 @@ class AudioEngine {
     }
   }
 
+  /** Changes the loudness correction of the playing track. */
+  setTrackGain(db: number | null | undefined): void {
+    const deck = this.current
+    deck.level = dbToLevel(db)
+    if (deck.gain && this.ctx) deck.gain.gain.setTargetAtTime(deck.level, this.ctx.currentTime, 0.05)
+  }
+
   setEqGains(gains: number[]): void {
     this.eqGains = gains
     if (!this.ctx) return
     const now = this.ctx.currentTime
-    gains.forEach((gain, index) => {
-      const filter = this.filters[index]
-      if (filter) filter.gain.setTargetAtTime(gain, now, 0.05)
-    })
+    gains.forEach((gain, index) => this.filters[index]?.gain.setTargetAtTime(gain, now, 0.05))
   }
 
   async setSink(id: string): Promise<void> {
@@ -376,8 +434,8 @@ class AudioEngine {
     return this.analyser
   }
 
-  getElement(): HTMLAudioElement {
-    return this.decks[this.active].el
+  get paused(): boolean {
+    return this.current.el.paused
   }
 }
 

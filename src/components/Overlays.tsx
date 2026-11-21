@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import { useStore } from '../store/useStore'
+import { getStore, useStore } from '../store/useStore'
+import type { ContextMenuState, Track } from '../types'
+import { albumKey, cx, plural } from '../utils'
 import { Icon } from './Icons'
+import { PlaylistPicker } from './PlaylistPicker'
 import { Settings } from './Settings'
 
 export function Overlays() {
@@ -10,105 +13,114 @@ export function Overlays() {
       <ContextMenu />
       <TagEditor />
       <Settings />
-      <Toast />
+      <CloseDialog />
+      <Toasts />
     </>
   )
 }
 
+/* ------------------------------ context menu ----------------------------- */
+
+const closeMenu = (): void => getStore().setContextMenu(null)
+
 function ContextMenu() {
   const menu = useStore((state) => state.contextMenu)
-  const setContextMenu = useStore((state) => state.setContextMenu)
-  const tracks = useStore((state) => state.tracks)
-  const playlists = useStore((state) => state.playlists)
-  const favorites = useStore((state) => state.favorites)
-  const playTracks = useStore((state) => state.playTracks)
-  const playNext = useStore((state) => state.playNext)
-  const addToQueue = useStore((state) => state.addToQueue)
-  const toggleLike = useStore((state) => state.toggleLike)
-  const addToPlaylist = useStore((state) => state.addToPlaylist)
-  const createPlaylist = useStore((state) => state.createPlaylist)
-  const setView = useStore((state) => state.setView)
-  const [showPlaylists, setShowPlaylists] = useState(false)
-
-  useEffect(() => {
-    setShowPlaylists(false)
-  }, [menu])
-
-  useEffect(() => {
-    if (!menu) return
-    const handler = (): void => setContextMenu(null)
-    const keyHandler = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setContextMenu(null)
-    }
-    window.addEventListener('resize', handler)
-    document.addEventListener('keydown', keyHandler)
-    return () => {
-      window.removeEventListener('resize', handler)
-      document.removeEventListener('keydown', keyHandler)
-    }
-  }, [menu, setContextMenu])
-
   if (!menu) return null
-  const track = tracks.find((item) => item.id === menu.trackId)
+  // A fresh body per opening, so the playlist sub-list always starts closed.
+  return <ContextMenuBody key={`${menu.x},${menu.y},${menu.trackIds.join(',')}`} menu={menu} />
+}
+
+function ContextMenuBody({ menu }: { menu: ContextMenuState }) {
+  const tracks = useStore((state) => state.tracks)
+  const favorites = useStore((state) => state.favorites)
+  const transientIds = useStore((state) => state.transientIds)
+  const [showPlaylists, setShowPlaylists] = useState(false)
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+  const ref = useRef<HTMLDivElement | null>(null)
+  const close = closeMenu
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('blur', closeMenu)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [])
+
+  // Measure the real menu and keep it inside the window.
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    const left = Math.max(8, Math.min(menu.x, window.innerWidth - rect.width - 8))
+    const top = menu.y + rect.height > window.innerHeight - 8 ? Math.max(8, menu.y - rect.height) : menu.y
+    setPosition({ left, top })
+  }, [menu, showPlaylists])
+
+  const byId = new Map(tracks.map((track) => [track.id, track]))
+  const items = menu.trackIds.map((id) => byId.get(id)).filter((track): track is Track => Boolean(track))
+  const track = items[0]
   if (!track) return null
 
-  const liked = favorites.includes(track.id)
-  const x = Math.min(menu.x, window.innerWidth - 250)
-  const y = Math.min(menu.y, window.innerHeight - 380)
+  const s = getStore()
+  const multiple = items.length > 1
+  const ids = items.map((item) => item.id)
+  const allLiked = ids.every((id) => favorites.includes(id))
+  const someTransient = ids.some((id) => transientIds.includes(id))
+  const run = (action: () => void) => () => {
+    action()
+    close()
+  }
 
   return (
     <>
-      <div className="context-backdrop" onMouseDown={() => setContextMenu(null)} onContextMenu={(event) => event.preventDefault()} />
-      <div className="context-menu glass" style={{ left: Math.max(8, x), top: Math.max(8, y) }}>
+      <div className="context-backdrop" onPointerDown={close} onContextMenu={(event) => event.preventDefault()} />
+      <div
+        ref={ref}
+        className="context-menu glass-panel"
+        role="menu"
+        style={{ left: position?.left ?? menu.x, top: position?.top ?? menu.y, visibility: position ? 'visible' : 'hidden' }}
+      >
         <div className="context-head">
-          <span className="title-name">{track.title}</span>
-          <span className="title-artist">{track.artist}</span>
+          <span className="title-name">{multiple ? plural(items.length, 'track') : track.title}</span>
+          <span className="title-artist">{multiple ? 'Selection' : track.artist}</span>
         </div>
+
         <button
           type="button"
           className="context-item"
-          onClick={() => {
-            playTracks([track.id], 0)
-            setContextMenu(null)
-          }}
+          role="menuitem"
+          onClick={run(() => {
+            if (multiple || !menu.context) s.playTracks(ids, 0)
+            else s.playTracks(menu.context.ids, menu.context.index)
+          })}
         >
-          <Icon name="play" size={15} /> Play now
+          <Icon name="play" size={15} /> {multiple ? 'Play selection' : 'Play'}
         </button>
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            playNext([track.id])
-            setContextMenu(null)
-          }}
-        >
+        <button type="button" className="context-item" role="menuitem" onClick={run(() => s.playNext(ids))}>
           <Icon name="next" size={15} /> Play next
         </button>
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            addToQueue([track.id])
-            setContextMenu(null)
-          }}
-        >
+        <button type="button" className="context-item" role="menuitem" onClick={run(() => s.addToQueue(ids))}>
           <Icon name="queue" size={15} /> Add to queue
         </button>
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            toggleLike(track.id)
-            setContextMenu(null)
-          }}
-        >
-          <Icon name="heart" size={15} /> {liked ? 'Remove from Liked' : 'Add to Liked'}
+        <button type="button" className="context-item" role="menuitem" onClick={run(() => s.setLiked(ids, !allLiked))}>
+          <Icon name={allLiked ? 'heart' : 'heart-outline'} size={15} /> {allLiked ? 'Remove from Liked' : 'Add to Liked'}
         </button>
+        {someTransient && (
+          <button type="button" className="context-item" role="menuitem" onClick={run(() => s.addToLibrary(ids))}>
+            <Icon name="library" size={15} /> Add to library
+          </button>
+        )}
 
         <div className="context-sep" />
 
         {!showPlaylists ? (
-          <button type="button" className="context-item" onClick={() => setShowPlaylists(true)}>
+          <button type="button" className="context-item" role="menuitem" onClick={() => setShowPlaylists(true)}>
             <Icon name="playlist" size={15} /> Add to playlist
             <span className="context-chevron">
               <Icon name="chevron-right" size={13} />
@@ -116,168 +128,264 @@ function ContextMenu() {
           </button>
         ) : (
           <div className="context-sub">
-            {playlists.length === 0 && <p className="context-hint">No playlists yet</p>}
-            {playlists.map((playlist) => (
-              <button
-                key={playlist.id}
-                type="button"
-                className="context-item"
-                onClick={() => {
-                  addToPlaylist(playlist.id, [track.id])
-                  setContextMenu(null)
-                }}
-              >
-                <Icon name="playlist" size={14} /> <span className="truncate">{playlist.name}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className="context-item accent"
-              onClick={() => {
-                const id = createPlaylist(`Playlist ${playlists.length + 1}`, [track.id])
-                setView({ kind: 'playlist', id })
-                setContextMenu(null)
-              }}
-            >
-              <Icon name="plus" size={14} /> New playlist
-            </button>
+            <PlaylistPicker trackIds={ids} onDone={close} variant="context" />
           </div>
         )}
 
-        <div className="context-sep" />
-
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            setView({ kind: 'album', id: `${track.albumArtist}|||${track.album}` })
-            setContextMenu(null)
-          }}
-        >
-          <Icon name="disc" size={15} /> Go to album
-        </button>
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            setView({ kind: 'artist', id: track.artist })
-            setContextMenu(null)
-          }}
-        >
-          <Icon name="mic" size={15} /> Go to artist
-        </button>
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            useStore.getState().setTagEdit(track.id)
-            setContextMenu(null)
-          }}
-        >
-          <Icon name="edit" size={15} /> Edit track details
-        </button>
-        <button
-          type="button"
-          className="context-item"
-          onClick={() => {
-            void api.revealFile(track.path)
-            setContextMenu(null)
-          }}
-        >
-          <Icon name="folder" size={15} /> Show in Explorer
-        </button>
-        <span className="context-foot">{track.bitrate ? `${track.bitrate} kbps · ` : ''}{track.genre || 'audio'}</span>
+        {!multiple && (
+          <>
+            <div className="context-sep" />
+            <button
+              type="button"
+              className="context-item"
+              role="menuitem"
+              onClick={run(() => s.setView({ kind: 'album', id: albumKey(track) }))}
+            >
+              <Icon name="disc" size={15} /> Go to album
+            </button>
+            <button
+              type="button"
+              className="context-item"
+              role="menuitem"
+              onClick={run(() => s.setView({ kind: 'artist', id: track.artist }))}
+            >
+              <Icon name="mic" size={15} /> Go to artist
+            </button>
+            <button type="button" className="context-item" role="menuitem" onClick={run(() => s.setTagEdit(track.id))}>
+              <Icon name="edit" size={15} /> Edit details
+            </button>
+            <button
+              type="button"
+              className="context-item"
+              role="menuitem"
+              onClick={run(() => void api.revealFile(track.path))}
+            >
+              <Icon name="folder" size={15} /> Show in Explorer
+            </button>
+            <span className="context-foot">
+              {[track.bitrate ? `${track.bitrate} kbps` : '', track.sampleRate ? `${(track.sampleRate / 1000).toFixed(1)} kHz` : '', track.genre]
+                .filter(Boolean)
+                .join(' · ') || 'Audio file'}
+            </span>
+          </>
+        )}
       </div>
     </>
   )
 }
 
+/* ------------------------------- tag editor ------------------------------ */
+
+type Draft = { title: string; artist: string; albumArtist: string; album: string; genre: string; year: string }
+
 function TagEditor() {
-  const id = useStore((state) => state.tagEditId)
-  const setTagEdit = useStore((state) => state.setTagEdit)
   const track = useStore((state) => (state.tagEditId ? state.tracks.find((item) => item.id === state.tagEditId) : undefined))
-  const updateTrack = useStore((state) => state.updateTrack)
-  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' })
+  if (!track) return null
+  return <TagEditorForm key={track.id} track={track} />
+}
 
-  useEffect(() => {
-    if (!track) return
-    setDraft({
-      title: track.title,
-      artist: track.artist,
-      album: track.album,
-      genre: track.genre,
-      year: track.year ? String(track.year) : '',
-    })
-  }, [track?.id])
+function TagEditorForm({ track }: { track: Track }) {
+  const [draft, setDraft] = useState<Draft>(() => ({
+    title: track.title,
+    artist: track.artist,
+    albumArtist: track.albumArtist,
+    album: track.album,
+    genre: track.genre,
+    year: track.year ? String(track.year) : '',
+  }))
+  const [saving, setSaving] = useState(false)
+  const close = (): void => getStore().setTagEdit(null)
 
-  if (!id || !track) return null
-
-  const save = (): void => {
-    updateTrack(track.id, {
+  const save = async (): Promise<void> => {
+    if (saving) return
+    setSaving(true)
+    const year = draft.year.trim() ? Math.round(Number(draft.year)) : null
+    await getStore().updateTrack(track.id, {
       title: draft.title.trim() || track.title,
-      artist: draft.artist.trim(),
-      album: draft.album.trim(),
+      artist: draft.artist.trim() || track.artist,
+      albumArtist: draft.albumArtist.trim() || draft.artist.trim() || track.albumArtist,
+      album: draft.album.trim() || track.album,
       genre: draft.genre.trim(),
-      year: draft.year.trim() ? Number(draft.year) || null : null,
+      year: year && year > 0 && year < 10000 ? year : null,
     })
-    setTagEdit(null)
+    setSaving(false)
+    close()
   }
 
-  const fields: { key: keyof typeof draft; label: string; type?: string }[] = [
-    { key: 'title', label: 'Title' },
+  const fields: { key: keyof Draft; label: string; type?: string; wide?: boolean }[] = [
+    { key: 'title', label: 'Title', wide: true },
     { key: 'artist', label: 'Artist' },
-    { key: 'album', label: 'Album' },
+    { key: 'albumArtist', label: 'Album artist' },
+    { key: 'album', label: 'Album', wide: true },
     { key: 'genre', label: 'Genre' },
     { key: 'year', label: 'Year', type: 'number' },
   ]
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => setTagEdit(null)}>
-      <div className="modal glass tag-editor" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-head">
-          <h2>Edit track details</h2>
-        </div>
-        <div className="modal-body">
-          <p className="setting-help truncate">{track.path}</p>
-          {fields.map((field) => (
-            <label key={field.key} className="tag-field">
+    <div className="modal-backdrop" onPointerDown={close}>
+      <div
+        className="modal glass-panel tag-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Edit track details"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <header className="modal-head">
+          <div>
+            <p className="eyebrow">Edit details</p>
+            <h2 className="truncate">{track.title}</h2>
+          </div>
+          <button type="button" className="icon-btn" title="Close" aria-label="Close" onClick={close}>
+            <Icon name="x" size={17} />
+          </button>
+        </header>
+        <form
+          className="modal-body tag-grid"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void save()
+          }}
+        >
+          {fields.map((field, index) => (
+            <label key={field.key} className={cx('field', field.wide && 'wide')}>
               <span>{field.label}</span>
               <input
-                className="input"
+                className="input boxed"
                 type={field.type ?? 'text'}
                 value={draft[field.key]}
+                autoFocus={index === 0}
                 onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') save()
-                  if (event.key === 'Escape') setTagEdit(null)
-                }}
+                onKeyDown={(event) => event.key === 'Escape' && close()}
               />
             </label>
           ))}
-          <p className="setting-help">
-            Saved in the MeowPlayer library. Rescanning the folder restores the tags read from the file.
+          <p className="help wide">
+            Changes are written into the file, so other players see them too. Files that cannot be written keep the
+            change inside MeowPlayer.
           </p>
-        </div>
-        <div className="modal-footer">
-          <button type="button" className="btn ghost" onClick={() => setTagEdit(null)}>
-            Cancel
-          </button>
-          <button type="button" className="btn primary" onClick={save}>
-            Save
-          </button>
-        </div>
+          <p className="help wide path" title={track.path}>
+            {track.path}
+          </p>
+          <footer className="modal-footer wide">
+            <button type="button" className="btn ghost" onClick={close}>
+              Cancel
+            </button>
+            <button type="submit" className="btn primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </footer>
+        </form>
       </div>
     </div>
   )
 }
 
-function Toast() {
-  const toast = useStore((state) => state.toast)
-  if (!toast) return null
+/* ------------------------------ close dialog ----------------------------- */
+
+/** Asked when the window is closed and no choice has been remembered yet. */
+function CloseDialog() {
+  const [open, setOpen] = useState(false)
+  const [remember, setRemember] = useState(false)
+
+  useEffect(() => api.ui.onCloseRequest(() => setOpen(true)), [])
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
+
+  if (!open) return null
+  const answer = (choice: 'tray' | 'quit'): void => {
+    setOpen(false)
+    api.ui.answerClose(choice, remember)
+  }
+
   return (
-    <div className="toast glass">
-      <Icon name="check" size={15} />
-      <span>{toast}</span>
+    <div className="modal-backdrop" onPointerDown={() => setOpen(false)}>
+      <div
+        className="modal glass-panel small-modal close-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="close-title"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <header className="modal-head">
+          <div>
+            <h2 id="close-title">Keep the music playing?</h2>
+            <p className="help">
+              MeowPlayer can keep playing from the system tray, or quit completely. You can change this later in
+              Settings, Playback.
+            </p>
+          </div>
+        </header>
+        <div className="close-options">
+          <button type="button" className="close-option" onClick={() => answer('tray')} autoFocus>
+            <span className="close-option-icon">
+              <Icon name="pip" size={18} />
+            </span>
+            <span className="close-option-text">
+              <span className="setting-label">Keep playing in the tray</span>
+              <span className="setting-help">Hide the window, keep the music going.</span>
+            </span>
+          </button>
+          <button type="button" className="close-option" onClick={() => answer('quit')}>
+            <span className="close-option-icon">
+              <Icon name="x" size={18} />
+            </span>
+            <span className="close-option-text">
+              <span className="setting-label">Quit MeowPlayer</span>
+              <span className="setting-help">Stop playback and close the app.</span>
+            </span>
+          </button>
+        </div>
+        <footer className="modal-footer spread">
+          <label className="check">
+            <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+            <span>Remember my choice</span>
+          </label>
+          <button type="button" className="btn ghost small" onClick={() => setOpen(false)}>
+            Cancel
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+/* --------------------------------- toasts -------------------------------- */
+
+const TOAST_ICON = { success: 'check', error: 'alert', info: 'info' } as const
+
+function Toasts() {
+  const toasts = useStore((state) => state.toasts)
+  const dismiss = useStore((state) => state.dismissToast)
+  if (!toasts.length) return null
+  return (
+    <div className="toasts" role="status" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={cx('toast glass-panel', toast.kind)}>
+          <Icon name={TOAST_ICON[toast.kind]} size={15} />
+          <span className="grow">{toast.message}</span>
+          {toast.action && (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                toast.action?.run()
+                dismiss(toast.id)
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
+          <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import type { AudioDevice, LyricsLine, UpdateInfo } from './types'
+import type { ScanResult, TagEdit, Track, UpdateInfo } from './types'
 
 export interface ScanProgress {
   done: number
@@ -11,6 +11,9 @@ export interface RawLyrics {
   source: string
 }
 
+type Unsubscribe = () => void
+
+/** The bridge the preload script exposes on `window.api`. */
 export interface AppApi {
   platform: string
   window: {
@@ -18,7 +21,7 @@ export interface AppApi {
     toggleMaximize: () => void
     close: () => void
     isMaximized: () => Promise<boolean>
-    onMaximizeChange: (cb: (value: boolean) => void) => () => void
+    onMaximizeChange: (cb: (value: boolean) => void) => Unsubscribe
   }
   mini: {
     show: () => void
@@ -26,15 +29,21 @@ export interface AppApi {
     command: (command: string) => void
     broadcast: (state: unknown) => void
     requestState: () => Promise<unknown>
-    onState: (cb: (state: unknown) => void) => () => void
+    isVisible: () => Promise<boolean>
+    onState: (cb: (state: unknown) => void) => Unsubscribe
+    onVisibility: (cb: (visible: boolean) => void) => Unsubscribe
   }
   library: {
     pickFolders: () => Promise<string[]>
-    scan: (folders: string[]) => Promise<unknown[]>
-    ingest: (paths: string[]) => Promise<unknown[]>
-    probe: (file: string) => Promise<unknown>
+    scan: (folders: string[], known: Record<string, number>) => Promise<ScanResult>
+    ingest: (paths: string[]) => Promise<Track[]>
+    probe: (file: string) => Promise<Track | null>
+    writeTags: (file: string, edit: TagEdit) => Promise<{ track?: Track; error?: string }>
+    pruneCovers: (used: string[]) => Promise<number>
+    watch: (folders: string[]) => void
+    onChanged: (cb: () => void) => Unsubscribe
     pickImage: () => Promise<string | null>
-    onProgress: (cb: (value: ScanProgress) => void) => () => void
+    onProgress: (cb: (value: ScanProgress) => void) => Unsubscribe
     importM3u: () => Promise<{ name: string; paths: string[] } | null>
     exportM3u: (
       name: string,
@@ -52,9 +61,16 @@ export interface AppApi {
     paths: (files: File[]) => string[]
   }
   ui: {
+    setZoom: (factor: number) => void
+    /** Zoom is shared by every window of the app, so the mini window reads it to undo it. */
+    getZoom: () => number
     thumbar: (icons: Record<string, string>) => void
     thumbarState: (playing: boolean) => void
     trayPrefs: (prefs: { closeBehavior: string }) => void
+    onCloseBehavior: (cb: (value: string) => void) => Unsubscribe
+    /** The main process asks the renderer to show the close dialog. */
+    onCloseRequest: (cb: () => void) => Unsubscribe
+    answerClose: (choice: 'tray' | 'quit', remember: boolean) => void
     openDefaultApps: () => Promise<boolean>
     version: () => Promise<string>
     exportSettings: (json: string) => Promise<boolean>
@@ -63,85 +79,91 @@ export interface AppApi {
     reportError: (message: string) => void
     logPath: () => Promise<string>
   }
-  onSystemPause: (cb: () => void) => () => void
+  onSystemPause: (cb: () => void) => Unsubscribe
   updates: {
     check: (force: boolean) => Promise<UpdateInfo | null>
     snooze: (days: number) => Promise<number>
-    install: (info: UpdateInfo) => Promise<{ ok: boolean; file?: string; error?: string }>
+    install: () => Promise<{ ok: boolean; file?: string; error?: string }>
     openRelease: (url: string) => Promise<void>
-    onAvailable: (cb: (info: UpdateInfo) => void) => () => void
+    onAvailable: (cb: (info: UpdateInfo) => void) => Unsubscribe
   }
-  onMediaKey: (cb: (action: string) => void) => () => void
-  onPlayerCommand: (cb: (command: string) => void) => () => void
-  onOpenFiles: (cb: (paths: string[]) => void) => () => void
+  onPlayerCommand: (cb: (command: string) => void) => Unsubscribe
+  onOpenFiles: (cb: (paths: string[]) => void) => Unsubscribe
   openExternal: (url: string) => Promise<void>
   revealFile: (file: string) => Promise<boolean>
 }
 
 const noop = (): void => undefined
-const resolved = <T>(value: T) => async (): Promise<T> => value
+const off = (): Unsubscribe => noop
+const resolved =
+  <T>(value: T) =>
+  async (): Promise<T> =>
+    value
 
-const stub: AppApi = {
+/** Used when the renderer runs in a plain browser (for example `vite` alone or tests). */
+const browserStub: AppApi = {
   platform: 'browser',
-  window: {
-    minimize: noop,
-    toggleMaximize: noop,
-    close: noop,
-    isMaximized: resolved(false),
-    onMaximizeChange: () => noop,
-  },
+  window: { minimize: noop, toggleMaximize: noop, close: noop, isMaximized: resolved(false), onMaximizeChange: off },
   mini: {
     show: noop,
     hide: noop,
     command: noop,
     broadcast: noop,
     requestState: resolved(null),
-    onState: () => noop,
+    isVisible: resolved(false),
+    onState: off,
+    onVisibility: off,
   },
   library: {
     pickFolders: resolved<string[]>([]),
-    scan: resolved<unknown[]>([]),
-    ingest: resolved<unknown[]>([]),
+    scan: resolved<ScanResult>({ tracks: [], kept: [] }),
+    ingest: resolved<Track[]>([]),
     probe: resolved(null),
+    writeTags: resolved({ error: 'Tag editing needs the desktop app' }),
+    pruneCovers: resolved(0),
+    watch: noop,
+    onChanged: off,
     pickImage: resolved<string | null>(null),
-    onProgress: () => noop,
+    onProgress: off,
     importM3u: resolved(null),
     exportM3u: resolved(false),
   },
-  store: {
-    load: resolved<Record<string, unknown>>({}),
-    save: resolved(true),
-  },
-  lyrics: {
-    get: resolved<RawLyrics | null>(null),
-  },
+  store: { load: resolved<Record<string, unknown>>({}), save: resolved(true) },
+  lyrics: { get: resolved<RawLyrics | null>(null) },
   files: { paths: () => [] },
   ui: {
+    setZoom: (factor) => {
+      document.body.style.zoom = String(factor)
+    },
+    getZoom: () => 1,
     thumbar: noop,
     thumbarState: noop,
     trayPrefs: noop,
+    onCloseBehavior: off,
+    onCloseRequest: off,
+    answerClose: noop,
     openDefaultApps: resolved(true),
-    version: resolved('1.0.0'),
+    version: resolved('dev'),
     exportSettings: resolved(false),
     importSettings: resolved<Record<string, unknown> | null>(null),
     notify: resolved(false),
     reportError: noop,
     logPath: resolved(''),
   },
-  onSystemPause: () => noop,
+  onSystemPause: off,
   updates: {
     check: resolved<UpdateInfo | null>(null),
     snooze: resolved(0),
     install: async () => ({ ok: false, error: 'Updates are only available in the desktop app' }),
     openRelease: resolved(undefined),
-    onAvailable: () => noop,
+    onAvailable: off,
   },
-  onMediaKey: () => noop,
-  onPlayerCommand: () => noop,
-  onOpenFiles: () => noop,
-  openExternal: resolved(undefined),
+  onPlayerCommand: off,
+  onOpenFiles: off,
+  openExternal: async (url) => {
+    window.open(url, '_blank', 'noopener')
+  },
   revealFile: resolved(true),
 }
 
-export const api: AppApi = (window as unknown as { api?: AppApi }).api ?? stub
-export type { AudioDevice, LyricsLine }
+export const api: AppApi = (window as unknown as { api?: AppApi }).api ?? browserStub

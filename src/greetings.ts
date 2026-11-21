@@ -1,5 +1,6 @@
-// Generated from "assets/for use/MeowPlayer Home Greeting System.md" by
-// scripts/build-greetings.mjs. Edit the document, then run the script again.
+// The Home screen greetings: each one has a time window, the days it can
+// appear on, optional context tags (first launch, returning, long session)
+// and a weight. pickGreeting() chooses one that fits the moment.
 
 export type GreetingDay = 'any' | 'weekday' | 'weekend'
 

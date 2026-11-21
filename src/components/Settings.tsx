@@ -1,595 +1,642 @@
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../api'
-import { DEFAULT_SETTINGS, useStore } from '../store/useStore'
-import type { CloseBehavior, Settings as SettingsShape } from '../types'
-import { cx } from '../utils'
+import { ACCENTS } from '../store/defaults'
+import type { SettingsTab } from '../store/useStore'
+import { getStore, useStore } from '../store/useStore'
+import type { CloseBehavior, NormalizeMode, ThemeName, VisualizerStyle } from '../types'
+import { cx, plural } from '../utils'
 import { Icon } from './Icons'
-import updateLogo from '../../assets/meowdownlaod-logo.svg'
+import { Logo } from './Logo'
+import updateLogo from '../../assets/update-logo.svg'
 
-const ACCENTS = ['#1f1f1f', '#b04356', '#e6a3ae', '#a3b7c9', '#5f7385']
-const GRADIENTS: { id: string; label: string }[] = [
-  { id: 'mono', label: 'Graphite' },
-  { id: 'light', label: 'Light' },
-  { id: 'cherry', label: 'Cherry' },
-  { id: 'navy', label: 'Navy' },
+const TABS: { id: SettingsTab; label: string; icon: string }[] = [
+  { id: 'appearance', label: 'Appearance', icon: 'palette' },
+  { id: 'playback', label: 'Playback', icon: 'play' },
+  { id: 'lyrics', label: 'Lyrics', icon: 'lyrics' },
+  { id: 'library', label: 'Library', icon: 'library' },
+  { id: 'system', label: 'System', icon: 'monitor' },
+  { id: 'about', label: 'About', icon: 'info' },
 ]
+
+const THEMES: { id: ThemeName; label: string; note: string }[] = [
+  { id: 'system', label: 'System', note: 'Follows Windows' },
+  { id: 'graphite', label: 'Graphite', note: 'Cool grey glass' },
+  { id: 'light', label: 'Light', note: 'Paper glass' },
+  { id: 'cherry', label: 'Cherry', note: 'Deep wine glass' },
+  { id: 'navy', label: 'Navy', note: 'Midnight glass' },
+]
+
+const SCALES: { value: number; label: string }[] = [
+  { value: 0, label: 'Auto' },
+  { value: 0.9, label: 'Compact' },
+  { value: 1, label: 'Default' },
+  { value: 1.15, label: 'Large' },
+  { value: 1.3, label: 'Extra large' },
+]
+
+const SHORTCUTS: [string, string][] = [
+  ['Space', 'Play / pause'],
+  ['← →', 'Seek 5 seconds'],
+  ['Ctrl ← →', 'Previous / next track'],
+  ['↑ ↓', 'Volume'],
+  ['M', 'Mute'],
+  ['S', 'Shuffle'],
+  ['R', 'Repeat'],
+  ['L', 'Like the current track'],
+  ['Ctrl F', 'Search'],
+  ['Alt ← →', 'Back / forward'],
+  ['Enter', 'Play the selected song'],
+  ['Esc', 'Close menus and panels'],
+]
+
+/* ------------------------------ building blocks ----------------------------- */
+
+function Row({ label, help, children, stacked }: { label: string; help?: ReactNode; children: ReactNode; stacked?: boolean }) {
+  return (
+    <div className={cx('setting-row', stacked && 'stacked')}>
+      <div className="setting-text">
+        <span className="setting-label">{label}</span>
+        {help && <span className="setting-help">{help}</span>}
+      </div>
+      <div className="setting-control">{children}</div>
+    </div>
+  )
+}
+
+function Toggle({ on, onChange, label }: { on: boolean; onChange: (value: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={cx('toggle', on && 'on')}
+      onClick={() => onChange(!on)}
+    >
+      <span />
+    </button>
+  )
+}
+
+function Segmented<T extends string | number>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T
+  options: { value: T; label: string }[]
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="segmented" role="radiogroup">
+      {options.map((option) => (
+        <button
+          key={String(option.value)}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          className={cx('segment', value === option.value && 'active')}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Group({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <section className="settings-group">
+      {title && <h3>{title}</h3>}
+      <div className="settings-card">{children}</div>
+    </section>
+  )
+}
+
+/* --------------------------------- panes --------------------------------- */
+
+function Appearance() {
+  const settings = useStore((state) => state.settings)
+  const update = useStore((state) => state.updateSettings)
+  const customAccent = !ACCENTS.some((accent) => accent.color === settings.accent)
+
+  return (
+    <>
+      <Group title="Theme">
+        <div className="theme-grid">
+          {THEMES.map((theme) => (
+            <button
+              key={theme.id}
+              type="button"
+              className={cx('theme-card', settings.gradient === theme.id && 'active')}
+              onClick={() => update({ gradient: theme.id })}
+              aria-pressed={settings.gradient === theme.id}
+            >
+              <span className={cx('theme-preview', `preview-${theme.id}`)}>
+                <i />
+                <i />
+                <i />
+              </span>
+              <span className="theme-name">{theme.label}</span>
+              <span className="theme-note">{theme.note}</span>
+            </button>
+          ))}
+        </div>
+      </Group>
+
+      <Group title="Colour">
+        <Row label="Accent colour" help={settings.albumTheming ? 'Used when the current track has no artwork.' : undefined}>
+          <div className="swatches">
+            {ACCENTS.map((accent) => (
+              <button
+                key={accent.color}
+                type="button"
+                className={cx('swatch', settings.accent === accent.color && 'active')}
+                style={{ background: accent.color }}
+                title={accent.name}
+                aria-label={accent.name}
+                onClick={() => update({ accent: accent.color })}
+              />
+            ))}
+            <label className={cx('swatch custom', customAccent && 'active')} title="Custom colour">
+              <input
+                type="color"
+                value={settings.accent}
+                onChange={(event) => update({ accent: event.target.value })}
+                aria-label="Custom accent colour"
+              />
+              <Icon name="plus" size={12} />
+            </label>
+          </div>
+        </Row>
+        <Row label="Colour from album art" help="Tint the accent from the cover of the current track.">
+          <Toggle label="Colour from album art" on={settings.albumTheming} onChange={(value) => update({ albumTheming: value })} />
+        </Row>
+        <Row label="Artwork backdrop" help="Show the current cover, softly blurred, behind the interface.">
+          <Toggle label="Artwork backdrop" on={settings.ambientArt} onChange={(value) => update({ ambientArt: value })} />
+        </Row>
+      </Group>
+
+      <Group title="Layout">
+        <Row label="Interface size" help="Auto sizes the interface to the window and your display.">
+          <Segmented value={settings.uiScale} options={SCALES} onChange={(value) => update({ uiScale: value })} />
+        </Row>
+        <Row label="Glass blur" help={`${settings.blur}px`}>
+          <input
+            type="range"
+            className="range"
+            min={0}
+            max={64}
+            step={1}
+            value={settings.blur}
+            style={{ ['--fill' as string]: `${(settings.blur / 64) * 100}%` }}
+            onChange={(event) => update({ blur: Number(event.target.value) })}
+            aria-label="Glass blur"
+          />
+        </Row>
+        <Row label="Animations" help="Page transitions, drifting light and other motion.">
+          <Toggle label="Animations" on={settings.animations} onChange={(value) => update({ animations: value })} />
+        </Row>
+      </Group>
+
+      <Group title="Visualizer">
+        <Row label="Spectrum visualizer" help="The live spectrum on the now playing screen.">
+          <Toggle label="Spectrum visualizer" on={settings.visualizer} onChange={(value) => update({ visualizer: value })} />
+        </Row>
+        <Row label="Style">
+          <Segmented<VisualizerStyle>
+            value={settings.visualizerStyle}
+            options={[
+              { value: 'filament', label: 'Filament' },
+              { value: 'aurora', label: 'Aurora' },
+              { value: 'ribbon', label: 'Ribbon' },
+              { value: 'bars', label: 'Bars' },
+            ]}
+            onChange={(value) => update({ visualizerStyle: value })}
+          />
+        </Row>
+      </Group>
+    </>
+  )
+}
+
+function Playback() {
+  const settings = useStore((state) => state.settings)
+  const update = useStore((state) => state.updateSettings)
+
+  return (
+    <>
+      <Group title="Transitions">
+        <Row label="Crossfade" help={settings.crossfade > 0 ? `${settings.crossfade} s blend between tracks` : 'Off'}>
+          <input
+            type="range"
+            className="range"
+            min={0}
+            max={12}
+            step={1}
+            value={settings.crossfade}
+            style={{ ['--fill' as string]: `${(settings.crossfade / 12) * 100}%` }}
+            onChange={(event) => update({ crossfade: Number(event.target.value) })}
+            aria-label="Crossfade length"
+          />
+        </Row>
+        <Row label="Gapless playback" help="Buffer the next track so albums play without a pause between songs.">
+          <Toggle label="Gapless playback" on={settings.gapless} onChange={(value) => update({ gapless: value })} />
+        </Row>
+      </Group>
+
+      <Group title="Sound">
+        <Row label="Volume normalisation" help="Even out loudness using the ReplayGain tags in your files.">
+          <Segmented<NormalizeMode>
+            value={settings.normalize}
+            options={[
+              { value: 'off', label: 'Off' },
+              { value: 'track', label: 'Track' },
+              { value: 'album', label: 'Album' },
+            ]}
+            onChange={(value) => update({ normalize: value })}
+          />
+        </Row>
+        <Row label="Volume boost to 150%" help="Lets the volume slider go past 100% for quiet recordings.">
+          <Toggle label="Volume boost" on={settings.amplify} onChange={(value) => update({ amplify: value })} />
+        </Row>
+        <Row label="Equalizer" help="10-band EQ with presets, saved automatically.">
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => {
+              const s = getStore()
+              s.setDockTab('eq')
+              s.setSettingsOpen(false)
+            }}
+          >
+            <Icon name="sliders" size={14} /> Open equalizer
+          </button>
+        </Row>
+      </Group>
+
+      <Group title="Behaviour">
+        <Row label="Track-change notifications" help="A Windows notification when a new track starts in the background.">
+          <Toggle
+            label="Track-change notifications"
+            on={settings.notifications}
+            onChange={(value) => update({ notifications: value })}
+          />
+        </Row>
+        <Row label="When closing the window">
+          <select
+            className="select"
+            value={settings.closeBehavior}
+            onChange={(event) => update({ closeBehavior: event.target.value as CloseBehavior })}
+          >
+            <option value="ask">Ask every time</option>
+            <option value="tray">Keep playing in the tray</option>
+            <option value="quit">Quit MeowPlayer</option>
+          </select>
+        </Row>
+        <Row label="Pause when the PC sleeps or locks" help="Always on, so music never plays to an empty room.">
+          <span className="pill">On</span>
+        </Row>
+      </Group>
+    </>
+  )
+}
+
+function Lyrics() {
+  const settings = useStore((state) => state.settings)
+  const update = useStore((state) => state.updateSettings)
+  const download = useStore((state) => state.lyricsDownload)
+  const trackCount = useStore((state) => state.tracks.length)
+  const s = getStore()
+
+  return (
+    <>
+      <Group>
+        <Row label="Show lyrics" help="Synced lyrics from LRCLIB, matched by title, artist and length.">
+          <Toggle label="Show lyrics" on={settings.lyrics} onChange={(value) => update({ lyrics: value })} />
+        </Row>
+        <Row label="Look up lyrics automatically" help="Fetch lyrics as each track starts. When off, use Fetch lyrics in the panel.">
+          <Toggle
+            label="Look up lyrics automatically"
+            on={settings.autoLyrics}
+            onChange={(value) => update({ autoLyrics: value })}
+          />
+        </Row>
+        <Row label="Lyric line in the mini player">
+          <Toggle label="Lyric line in the mini player" on={settings.miniLyrics} onChange={(value) => update({ miniLyrics: value })} />
+        </Row>
+      </Group>
+
+      <Group title="Offline lyrics">
+        <Row
+          label="Download lyrics for the whole library"
+          stacked
+          help={
+            download.running
+              ? `Downloading ${download.done} of ${download.total}…`
+              : download.total > 0
+                ? `Last run: ${download.total - download.failed} found, ${download.failed} without lyrics.`
+                : 'Fetches and caches lyrics for every track so they work offline.'
+          }
+        >
+          {download.running ? (
+            <>
+              <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={download.total} aria-valuenow={download.done}>
+                <span style={{ width: `${download.total ? (download.done / download.total) * 100 : 0}%` }} />
+              </div>
+              <button type="button" className="btn ghost small" onClick={s.cancelLyricsDownload}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn ghost small" onClick={() => void s.downloadAllLyrics()} disabled={!trackCount}>
+              <Icon name="download" size={14} /> Download all
+            </button>
+          )}
+        </Row>
+      </Group>
+    </>
+  )
+}
+
+function Library() {
+  const settings = useStore((state) => state.settings)
+  const update = useStore((state) => state.updateSettings)
+  const tracks = useStore((state) => state.tracks.length)
+  const scanning = useStore((state) => state.scanning)
+  const progress = useStore((state) => state.scanProgress)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const s = getStore()
+
+  useEffect(() => {
+    if (!confirmClear) return
+    const timer = window.setTimeout(() => setConfirmClear(false), 4000)
+    return () => window.clearTimeout(timer)
+  }, [confirmClear])
+
+  return (
+    <>
+      <Group title="Music folders">
+        <div className="folder-list">
+          {settings.folders.length === 0 && <p className="setting-help pad">No folders yet. Add the folders that hold your music.</p>}
+          {settings.folders.map((folder) => (
+            <div className="folder-row" key={folder}>
+              <Icon name="folder" size={15} />
+              <span className="truncate grow" title={folder}>
+                {folder}
+              </span>
+              <button
+                type="button"
+                className="icon-btn tiny"
+                title="Remove folder"
+                aria-label={`Remove ${folder}`}
+                onClick={() => void s.removeFolder(folder)}
+              >
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="setting-actions">
+          <button type="button" className="btn ghost small" onClick={() => void s.addFolders()}>
+            <Icon name="plus" size={14} /> Add folder
+          </button>
+          <button type="button" className="btn ghost small" onClick={() => void s.rescan()} disabled={scanning}>
+            <Icon name="refresh" size={14} /> {scanning ? `Scanning ${progress.done}/${progress.total || '…'}` : 'Rescan'}
+          </button>
+          <span className="setting-help push">{plural(tracks, 'track')}</span>
+        </div>
+      </Group>
+
+      <Group title="Options">
+        <Row label="Watch folders for changes" help="New, changed and deleted files show up without a manual rescan.">
+          <Toggle label="Watch folders" on={settings.watchFolders} onChange={(value) => update({ watchFolders: value })} />
+        </Row>
+        <Row label="Hide duplicate tracks" help="In Songs, show one copy of tracks with the same title and artist.">
+          <Toggle label="Hide duplicates" on={settings.hideDuplicates} onChange={(value) => update({ hideDuplicates: value })} />
+        </Row>
+        <Row label="Clear library" help="Forgets every indexed track. Playlists, likes and your files are kept.">
+          <button
+            type="button"
+            className={cx('btn ghost small', confirmClear && 'danger')}
+            onClick={() => {
+              if (!confirmClear) {
+                setConfirmClear(true)
+                return
+              }
+              s.clearLibrary()
+              setConfirmClear(false)
+              s.showToast('Library cleared', { kind: 'info' })
+            }}
+          >
+            <Icon name="trash" size={14} /> {confirmClear ? 'Click again to confirm' : 'Clear library'}
+          </button>
+        </Row>
+      </Group>
+    </>
+  )
+}
+
+function System() {
+  const settings = useStore((state) => state.settings)
+  const update = useStore((state) => state.updateSettings)
+  const info = useStore((state) => state.update)
+  const checking = useStore((state) => state.checkingUpdate)
+  const version = useStore((state) => state.version)
+  const s = getStore()
+
+  const exportSettings = async (): Promise<void> => {
+    const ok = await api.ui.exportSettings(JSON.stringify(getStore().settings, null, 2))
+    if (ok) s.showToast('Settings exported')
+  }
+  const importSettings = async (): Promise<void> => {
+    const data = await api.ui.importSettings()
+    if (!data) {
+      s.showToast('That file is not a MeowPlayer settings export', { kind: 'error' })
+      return
+    }
+    s.importSettings(data)
+  }
+
+  return (
+    <>
+      <Group title="Updates">
+        <Row label="Check for updates automatically" help="MeowPlayer asks GitHub for the latest release shortly after launch.">
+          <Toggle label="Check for updates" on={settings.updateCheck} onChange={(value) => update({ updateCheck: value })} />
+        </Row>
+        {info?.available ? (
+          <div className="update-card">
+            <div className="update-head">
+              <img className="update-logo" src={updateLogo} alt="" draggable={false} />
+              <div>
+                <span className="setting-label">MeowPlayer {info.version} is available</span>
+                <span className="setting-help">You have {info.current}.</span>
+              </div>
+            </div>
+            {info.notes && <p className="update-notes">{info.notes}</p>}
+            <div className="setting-actions">
+              <button type="button" className="btn primary small" onClick={() => void s.installUpdate()}>
+                <Icon name="download" size={14} /> Install update
+              </button>
+              <button type="button" className="btn ghost small" onClick={() => void s.snoozeUpdate(7)}>
+                Remind me in a week
+              </button>
+              <button type="button" className="btn ghost small" onClick={() => void api.updates.openRelease(info.pageUrl)}>
+                Release notes
+              </button>
+            </div>
+          </div>
+        ) : (
+          <Row label={`Version ${version}`} help="You are on the latest version unless a check says otherwise.">
+            <button type="button" className="btn ghost small" onClick={() => void s.checkUpdates(true)} disabled={checking}>
+              <Icon name="refresh" size={14} /> {checking ? 'Checking…' : 'Check now'}
+            </button>
+          </Row>
+        )}
+      </Group>
+
+      <Group title="Windows">
+        <Row label="Default music player" help="Opens Windows Settings, where you can pick MeowPlayer for audio files.">
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => {
+              void api.ui.openDefaultApps()
+              s.showToast('Choose MeowPlayer in Windows default apps', { kind: 'info' })
+            }}
+          >
+            <Icon name="external" size={14} /> Open Windows settings
+          </button>
+        </Row>
+      </Group>
+
+      <Group title="Backup and diagnostics">
+        <Row label="Settings backup" help="Your preferences as a JSON file. Folders and devices stay on this PC.">
+          <div className="button-row">
+            <button type="button" className="btn ghost small" onClick={() => void exportSettings()}>
+              Export
+            </button>
+            <button type="button" className="btn ghost small" onClick={() => void importSettings()}>
+              Import
+            </button>
+          </div>
+        </Row>
+        <Row label="Crash log" help="Kept on this PC only. Attach it when you report a bug.">
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={async () => {
+              const path = await api.ui.logPath()
+              if (path) await api.revealFile(path)
+            }}
+          >
+            <Icon name="folder" size={14} /> Show crash log
+          </button>
+        </Row>
+      </Group>
+
+      <Group title="Keyboard shortcuts">
+        <div className="shortcut-grid">
+          {SHORTCUTS.map(([key, action]) => (
+            <div className="shortcut" key={key}>
+              <kbd>{key}</kbd>
+              <span>{action}</span>
+            </div>
+          ))}
+        </div>
+      </Group>
+    </>
+  )
+}
+
+function About() {
+  const version = useStore((state) => state.version)
+  return (
+    <div className="about">
+      <span className="about-logo">
+        <Logo size={64} />
+      </span>
+      <h2>MeowPlayer</h2>
+      <p className="setting-help">Version {version}</p>
+      <p className="about-text">A frosted-glass music player for your local library on Windows.</p>
+      <div className="button-row center">
+        <button
+          type="button"
+          className="btn ghost small"
+          onClick={() => void api.openExternal('https://github.com/AminMGM/MeowPlayer')}
+        >
+          <Icon name="external" size={14} /> Source code
+        </button>
+        <button
+          type="button"
+          className="btn ghost small"
+          onClick={() => void api.openExternal('https://github.com/AminMGM/MeowPlayer/issues')}
+        >
+          <Icon name="alert" size={14} /> Report a problem
+        </button>
+      </div>
+      <p className="about-credit">
+        Made with ♥ by{' '}
+        <button type="button" className="link accent" onClick={() => void api.openExternal('https://github.com/AminMGM')}>
+          AminMGM
+        </button>
+        <br />
+        Lyrics by <span className="muted">LRCLIB</span> · MIT License
+      </p>
+    </div>
+  )
+}
+
+/* --------------------------------- modal --------------------------------- */
 
 export function Settings() {
   const open = useStore((state) => state.settingsOpen)
-  const setSettingsOpen = useStore((state) => state.setSettingsOpen)
-  const settings = useStore((state) => state.settings)
-  const updateSettings = useStore((state) => state.updateSettings)
-  const addFolders = useStore((state) => state.addFolders)
-  const removeFolder = useStore((state) => state.removeFolder)
-  const rescan = useStore((state) => state.rescan)
-  const clearLibrary = useStore((state) => state.clearLibrary)
-  const tracks = useStore((state) => state.tracks)
-  const scanning = useStore((state) => state.scanning)
-  const scanProgress = useStore((state) => state.scanProgress)
-  const setDockTab = useStore((state) => state.setDockTab)
-  const showToast = useStore((state) => state.showToast)
-  const version = useStore((state) => state.version)
-  const update = useStore((state) => state.update)
-  const checkingUpdate = useStore((state) => state.checkingUpdate)
-  const checkUpdates = useStore((state) => state.checkUpdates)
-  const installUpdate = useStore((state) => state.installUpdate)
-  const snoozeUpdate = useStore((state) => state.snoozeUpdate)
-  const lyricsDownload = useStore((state) => state.lyricsDownload)
-  const downloadAllLyrics = useStore((state) => state.downloadAllLyrics)
-  const cancelLyricsDownload = useStore((state) => state.cancelLyricsDownload)
-  const [confirmClear, setConfirmClear] = useState(false)
-
-  const exportSettings = async (): Promise<void> => {
-    const ok = await api.ui.exportSettings(JSON.stringify(settings, null, 2))
-    showToast(ok ? 'Settings exported' : 'Export cancelled')
-  }
-
-  const importSettings = async (): Promise<void> => {
-    const data = await api.ui.importSettings()
-    if (!data || typeof data !== 'object') {
-      showToast('That file is not a MeowPlayer settings export')
-      return
-    }
-    const patch: Record<string, unknown> = {}
-    for (const key of Object.keys(DEFAULT_SETTINGS)) {
-      if (key in data) patch[key] = (data as Record<string, unknown>)[key]
-    }
-    updateSettings(patch as Partial<SettingsShape>)
-    showToast('Settings imported')
-  }
+  const tab = useStore((state) => state.settingsTab)
+  const setOpen = useStore((state) => state.setSettingsOpen)
 
   if (!open) return null
-
-  const folders = settings.folders
+  const close = (): void => setOpen(false)
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => setSettingsOpen(false)}>
-      <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
-        <header className="modal-head">
-          <div>
-            <p className="detail-eyebrow">MeowPlayer</p>
-            <h2>Settings</h2>
+    <div className="modal-backdrop" onPointerDown={close}>
+      <div
+        className="modal glass-panel settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <nav className="settings-nav" aria-label="Settings sections">
+          <p className="settings-title">Settings</p>
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={cx('settings-tab', tab === item.id && 'active')}
+              aria-current={tab === item.id ? 'page' : undefined}
+              onClick={() => setOpen(true, item.id)}
+            >
+              <Icon name={item.icon} size={16} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-main">
+          <header className="settings-head">
+            <h2>{TABS.find((item) => item.id === tab)?.label}</h2>
+            <button type="button" className="icon-btn" title="Close" aria-label="Close settings" onClick={close}>
+              <Icon name="x" size={17} />
+            </button>
+          </header>
+          <div className="settings-body" key={tab}>
+            {tab === 'appearance' && <Appearance />}
+            {tab === 'playback' && <Playback />}
+            {tab === 'lyrics' && <Lyrics />}
+            {tab === 'library' && <Library />}
+            {tab === 'system' && <System />}
+            {tab === 'about' && <About />}
           </div>
-          <button type="button" className="icon-btn" title="Close" onClick={() => setSettingsOpen(false)}>
-            <Icon name="x" size={17} />
-          </button>
-        </header>
-
-        <div className="modal-body">
-          <section className="settings-group">
-            <h3>Appearance</h3>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Accent colour</span>
-                <span className="setting-help">Cool greys drive the highlights and the spectrum.</span>
-              </div>
-              <div className="swatches">
-                {ACCENTS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    className={cx('swatch', settings.accent === color && 'active')}
-                    style={{ background: color }}
-                    title={color}
-                    onClick={() => updateSettings({ accent: color })}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Theme</span>
-                <span className="setting-help">Graphite is the default; Light, Cherry and Navy recolour the shell.</span>
-              </div>
-              <div className="segmented">
-                {GRADIENTS.map((gradient) => (
-                  <button
-                    key={gradient.id}
-                    type="button"
-                    className={cx('segment', settings.gradient === gradient.id && 'active')}
-                    onClick={() => updateSettings({ gradient: gradient.id })}
-                  >
-                    {gradient.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Glass blur</span>
-                <span className="setting-help">{settings.blur}px backdrop blur</span>
-              </div>
-              <input
-                type="range"
-                className="range wide"
-                min={0}
-                max={64}
-                step={1}
-                value={settings.blur}
-                onChange={(event) => updateSettings({ blur: Number(event.target.value) })}
-              />
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Theme from album art</span>
-                <span className="setting-help">Recolour the accent from the cover of the current track.</span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.albumTheming && 'on')}
-                onClick={() => updateSettings({ albumTheming: !settings.albumTheming })}
-                aria-pressed={settings.albumTheming}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Ambient animation</span>
-                <span className="setting-help">Slow drifting light behind the interface.</span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.animations && 'on')}
-                onClick={() => updateSettings({ animations: !settings.animations })}
-                aria-pressed={settings.animations}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Spectrum visualizer</span>
-                <span className="setting-help">Draw the live spectrum in the now playing views.</span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.visualizer && 'on')}
-                onClick={() => updateSettings({ visualizer: !settings.visualizer })}
-                aria-pressed={settings.visualizer}
-              >
-                <span />
-              </button>
-            </div>
-          </section>
-
-          <section className="settings-group">
-            <h3>Playback</h3>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Track-change notifications</span>
-                <span className="setting-help">Show a Windows notification when a new track starts while the app is in the background.</span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.notifications && 'on')}
-                onClick={() => updateSettings({ notifications: !settings.notifications })}
-                aria-pressed={settings.notifications}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Pause when the PC sleeps</span>
-                <span className="setting-help">Playback pauses when Windows sleeps or locks the screen.</span>
-              </div>
-              <span className="setting-help muted">Always on</span>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Crossfade</span>
-                <span className="setting-help">
-                  {settings.crossfade > 0 ? `${settings.crossfade}s blend between tracks` : 'Off — tracks change instantly'}
-                </span>
-              </div>
-              <input
-                type="range"
-                className="range wide accent-range"
-                min={0}
-                max={12}
-                step={1}
-                value={settings.crossfade}
-                style={{ ['--fill' as string]: `${(settings.crossfade / 12) * 100}%` }}
-                onChange={(event) => updateSettings({ crossfade: Number(event.target.value) })}
-              />
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Volume boost up to 150%</span>
-                <span className="setting-help">
-                  Extends the volume slider past 100% with extra gain. Off by default.
-                </span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.amplify && 'on')}
-                onClick={() => updateSettings({ amplify: !settings.amplify })}
-                aria-pressed={settings.amplify}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Automatic lyrics</span>
-                <span className="setting-help">Synced lyrics from LRCLIB, matched by title, artist and length.</span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.lyrics && 'on')}
-                onClick={() => updateSettings({ lyrics: !settings.lyrics })}
-                aria-pressed={settings.lyrics}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Download lyrics automatically</span>
-                <span className="setting-help">
-                  Fetch and cache lyrics as each track starts. Turn this off to download only when you ask.
-                </span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.autoLyrics && 'on')}
-                onClick={() => {
-                  const next = !settings.autoLyrics
-                  updateSettings({ autoLyrics: next })
-                  // Turning it on means "give me lyrics for everything", not just the next track.
-                  if (next) void downloadAllLyrics()
-                }}
-                aria-pressed={settings.autoLyrics}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Lyrics for the whole library</span>
-                <span className="setting-help">
-                  {lyricsDownload.running
-                    ? `Downloading ${lyricsDownload.done} of ${lyricsDownload.total} tracks…`
-                    : lyricsDownload.total > 0
-                      ? `Last run: ${lyricsDownload.total - lyricsDownload.failed} found, ${lyricsDownload.failed} without lyrics.`
-                      : 'Fetch lyrics for every track now and cache them for offline use.'}
-                </span>
-                {lyricsDownload.running && (
-                  <div
-                    className="lyrics-progress"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={lyricsDownload.total}
-                    aria-valuenow={lyricsDownload.done}
-                  >
-                    <span
-                      style={{
-                        width: `${
-                          lyricsDownload.total ? (lyricsDownload.done / lyricsDownload.total) * 100 : 0
-                        }%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-              {lyricsDownload.running ? (
-                <button type="button" className="btn ghost" onClick={cancelLyricsDownload}>
-                  Cancel
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn ghost"
-                  onClick={() => void downloadAllLyrics()}
-                  disabled={!tracks.length}
-                >
-                  <Icon name="download" size={15} /> Download all
-                </button>
-              )}
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Interface scale</span>
-                <span className="setting-help">Enlarge the whole interface for HiDPI screens or easier reading.</span>
-              </div>
-              <div className="segmented">
-                {[
-                  { value: 0.9, label: 'Compact' },
-                  { value: 1, label: 'Default' },
-                  { value: 1.15, label: 'Large' },
-                  { value: 1.3, label: 'Extra' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={cx('segment', settings.uiScale === option.value && 'active')}
-                    onClick={() => updateSettings({ uiScale: option.value })}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Visualizer style</span>
-                <span className="setting-help">Bars, or one of the three flowing line styles.</span>
-              </div>
-              <div className="segmented">
-                {(['bars', 'ribbon', 'aurora', 'filament'] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={cx('segment', settings.visualizerStyle === option && 'active')}
-                    onClick={() => updateSettings({ visualizerStyle: option })}
-                  >
-                    {option === 'bars' ? 'Bars' : option === 'ribbon' ? 'Ribbon' : option === 'aurora' ? 'Aurora' : 'Filament'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Equalizer</span>
-                <span className="setting-help">10-band EQ with presets, saved automatically.</span>
-              </div>
-              <button
-                type="button"
-                className="btn ghost small"
-                onClick={() => {
-                  setDockTab('eq')
-                  setSettingsOpen(false)
-                }}
-              >
-                <Icon name="sliders" size={14} /> Open
-              </button>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">When closing the window</span>
-                <span className="setting-help">The close button asks what to do — change it here at any time.</span>
-              </div>
-              <select
-                className="select small"
-                value={settings.closeBehavior}
-                onChange={(event) => updateSettings({ closeBehavior: event.target.value as CloseBehavior })}
-              >
-                <option value="ask">Ask every time</option>
-                <option value="tray">Minimize to tray</option>
-                <option value="quit">Quit MeowPlayer</option>
-              </select>
-            </div>
-
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Default music player</span>
-                <span className="setting-help">
-                  Windows asks you to confirm. Installer registers mp3, flac, m4a, wav, ogg and more.
-                </span>
-              </div>
-              <button
-                type="button"
-                className="btn ghost small"
-                onClick={() => {
-                  void api.ui.openDefaultApps()
-                  showToast('Choose MeowPlayer in Windows default apps')
-                }}
-              >
-                <Icon name="external" size={14} /> Open Windows settings
-              </button>
-            </div>
-          </section>
-
-          <section className="settings-group">
-            <h3>Library</h3>
-            <div className="folder-list">
-              {folders.length === 0 && <p className="muted">No folders added yet.</p>}
-              {folders.map((folder) => (
-                <div className="folder-row" key={folder}>
-                  <Icon name="folder" size={15} />
-                  <span className="truncate" title={folder}>
-                    {folder}
-                  </span>
-                  <button
-                    type="button"
-                    className="icon-btn tiny"
-                    title="Remove folder"
-                    onClick={() => void removeFolder(folder)}
-                  >
-                    <Icon name="x" size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="setting-actions">
-              <button type="button" className="btn ghost small" onClick={() => void addFolders()}>
-                <Icon name="plus" size={14} /> Add folder
-              </button>
-              <button type="button" className="btn ghost small" onClick={() => void rescan()} disabled={scanning}>
-                <Icon name="refresh" size={14} /> {scanning ? `${scanProgress.done}/${scanProgress.total || '…'}` : 'Rescan'}
-              </button>
-              <button
-                type="button"
-                className={cx('btn ghost small', confirmClear && 'danger')}
-                onClick={() => {
-                  if (!confirmClear) {
-                    setConfirmClear(true)
-                    window.setTimeout(() => setConfirmClear(false), 4000)
-                    return
-                  }
-                  clearLibrary()
-                  setConfirmClear(false)
-                  showToast('Library cleared')
-                }}
-              >
-                <Icon name="trash" size={14} /> {confirmClear ? 'Tap again to confirm' : 'Clear library'}
-              </button>
-            </div>
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Hide duplicate tracks</span>
-                <span className="setting-help">
-                  In Songs, show only the first copy of tracks with the same title and artist.
-                </span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.hideDuplicates && 'on')}
-                onClick={() => updateSettings({ hideDuplicates: !settings.hideDuplicates })}
-                aria-pressed={settings.hideDuplicates}
-              >
-                <span />
-              </button>
-            </div>
-            <p className="setting-help">{tracks.length.toLocaleString()} tracks indexed on this PC.</p>
-          </section>
-
-          <section className="settings-group">
-            <h3>Backup and diagnostics</h3>
-            <div className="setting-actions">
-              <button type="button" className="btn ghost small" onClick={() => void exportSettings()}>
-                <Icon name="download" size={14} /> Export settings
-              </button>
-              <button type="button" className="btn ghost small" onClick={() => void importSettings()}>
-                <Icon name="download" size={14} /> Import settings
-              </button>
-              <button
-                type="button"
-                className="btn ghost small"
-                onClick={async () => {
-                  const path = await api.ui.logPath()
-                  if (path) await api.revealFile(path)
-                  else showToast('No crash log yet')
-                }}
-              >
-                <Icon name="folder" size={14} /> Crash log
-              </button>
-            </div>
-            <p className="setting-help">Settings are a plain JSON file. The crash log stays on this PC.</p>
-          </section>
-
-          <section className="settings-group">
-            <h3>Updates</h3>
-            <div className="setting-row">
-              <div>
-                <span className="setting-label">Check for updates automatically</span>
-                <span className="setting-help">MeowPlayer asks GitHub for the latest release shortly after launch.</span>
-              </div>
-              <button
-                type="button"
-                className={cx('toggle', settings.updateCheck && 'on')}
-                onClick={() => updateSettings({ updateCheck: !settings.updateCheck })}
-                aria-pressed={settings.updateCheck}
-              >
-                <span />
-              </button>
-            </div>
-
-            {update?.available ? (
-              <div className="update-card">
-                <div className="update-head">
-                  <img className="update-logo" src={updateLogo} alt="" draggable={false} />
-                  <div>
-                    <span className="setting-label">MeowPlayer {update.version} is available</span>
-                    <span className="setting-help">You are on {update.current}.</span>
-                  </div>
-                </div>
-                {update.notes && <p className="update-notes">{update.notes}</p>}
-                <div className="setting-actions">
-                  <button type="button" className="btn primary small" onClick={() => void installUpdate()}>
-                    <Icon name="download" size={14} /> Install update
-                  </button>
-                  <button type="button" className="btn ghost small" onClick={() => void snoozeUpdate(7)}>
-                    Hide for 7 days
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost small"
-                    onClick={() => void api.updates.openRelease(update.pageUrl)}
-                  >
-                    Release notes
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="setting-actions">
-                <button
-                  type="button"
-                  className="btn ghost small"
-                  onClick={() => void checkUpdates(true)}
-                  disabled={checkingUpdate}
-                >
-                  <Icon name="refresh" size={14} /> {checkingUpdate ? 'Checking…' : 'Check now'}
-                </button>
-                <span className="setting-help">Version {version}</span>
-              </div>
-            )}
-          </section>
-
-          <section className="settings-group">
-            <h3>Keyboard shortcuts</h3>
-            <div className="shortcut-grid">
-              {[
-                ['Space', 'Play / pause'],
-                ['← →', 'Seek 5 s'],
-                ['Ctrl ← →', 'Previous / next'],
-                ['↑ ↓', 'Volume'],
-                ['M', 'Mute'],
-                ['S', 'Shuffle'],
-                ['R', 'Repeat'],
-                ['F', 'Like track'],
-                ['Ctrl F', 'Search'],
-                ['Esc', 'Close panels'],
-              ].map(([key, action]) => (
-                <div className="shortcut" key={key}>
-                  <kbd>{key}</kbd>
-                  <span>{action}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <p className="modal-footer">
-            MeowPlayer {version} - Made with &lt;3 by AminMGM
-          </p>
         </div>
       </div>
     </div>

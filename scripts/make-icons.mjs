@@ -129,9 +129,5 @@ fs.writeFileSync(
   path.join(process.cwd(), 'assets', 'tray.png'),
   encodePng(32, render(32, null, [255, 255, 255])),
 )
-fs.writeFileSync(
-  path.join(process.cwd(), 'assets', 'tray-dark.png'),
-  encodePng(32, render(32, null, [20, 24, 30])),
-)
 
 console.log('icons written:', fs.readdirSync(path.join(process.cwd(), 'assets')))
