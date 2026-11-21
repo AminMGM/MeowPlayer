@@ -4,6 +4,8 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parseFile } from 'music-metadata'
+import { File as TagFile } from 'node-taglib-sharp'
+import { grantDirectory, grantFile } from './media.js'
 
 const AUDIO_EXT = new Set([
   '.mp3', '.m4a', '.m4b', '.aac', '.flac', '.wav', '.ogg', '.oga', '.opus',
@@ -28,7 +30,21 @@ export interface Track {
   discNo: number | null
   cover: string | null
   size: number
+  /** File modification time, used to skip unchanged files on a rescan. */
+  mtime: number
+  /** ReplayGain track and album gain in dB, when the file is tagged. */
+  trackGain: number | null
+  albumGain: number | null
   addedAt: number
+}
+
+export interface TagEdit {
+  title?: string
+  artist?: string
+  album?: string
+  albumArtist?: string
+  genre?: string
+  year?: number | null
 }
 
 export function toMediaUrl(filePath: string): string {
@@ -39,8 +55,13 @@ export function isAudioFile(filePath: string): boolean {
   return AUDIO_EXT.has(path.extname(filePath).toLowerCase())
 }
 
-function hash(value: string, algo: 'sha1' | 'md5' = 'sha1'): string {
+function hash(value: string | Uint8Array, algo: 'sha1' | 'md5' = 'sha1'): string {
   return crypto.createHash(algo).update(value).digest('hex')
+}
+
+/** Track ids are the hash of the path, stable across rescans and app versions. */
+function trackId(filePath: string): string {
+  return hash(filePath)
 }
 
 function coversDir(): string {
@@ -70,11 +91,8 @@ async function walk(dir: string, out: string[], depth = 0): Promise<void> {
     if (entry.name.startsWith('.')) continue
     if (entry.name === 'System Volume Information' || entry.name === '$RECYCLE.BIN') continue
     const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      await walk(full, out, depth + 1)
-    } else if (entry.isFile() && AUDIO_EXT.has(path.extname(entry.name).toLowerCase())) {
-      out.push(full)
-    }
+    if (entry.isDirectory()) await walk(full, out, depth + 1)
+    else if (entry.isFile() && isAudioFile(entry.name)) out.push(full)
   }
 }
 
@@ -94,85 +112,91 @@ async function findFolderArt(dir: string): Promise<string | null> {
   return found
 }
 
+/**
+ * Embedded artwork is cached once per distinct image (keyed by its bytes), so
+ * untagged tracks that happen to share "Unknown Album" no longer share a cover.
+ */
 async function resolveCover(
-  albumKey: string,
   albumDir: string,
   picture: { data: Uint8Array; format: string } | undefined,
 ): Promise<string | null> {
-  const key = hash(albumKey, 'md5')
-  if (picture && picture.data && picture.data.length > 0) {
+  if (picture?.data && picture.data.length > 0) {
     const ext = picture.format.includes('png') ? '.png' : picture.format.includes('webp') ? '.webp' : '.jpg'
-    const target = path.join(coversDir(), key + ext)
-    if (!(await exists(target))) {
-      try {
-        await fsp.writeFile(target, Buffer.from(picture.data))
-      } catch {
-        const art = await findFolderArt(albumDir)
-        return art ? toMediaUrl(art) : null
-      }
+    const target = path.join(coversDir(), hash(picture.data, 'md5') + ext)
+    try {
+      if (!(await exists(target))) await fsp.writeFile(target, Buffer.from(picture.data))
+      return toMediaUrl(target)
+    } catch {
+      /* fall back to folder art */
     }
-    return toMediaUrl(target)
   }
   const art = await findFolderArt(albumDir)
-  return art ? toMediaUrl(art) : null
+  if (!art) return null
+  grantFile(art)
+  return toMediaUrl(art)
 }
 
-export async function readTrack(filePath: string, dir: string): Promise<Track | null> {
+const gainOf = (value: { dB?: number } | undefined): number | null =>
+  value && typeof value.dB === 'number' && Number.isFinite(value.dB) ? value.dB : null
+
+export async function readTrack(filePath: string): Promise<Track | null> {
+  let stat: fs.Stats
+  try {
+    stat = await fsp.stat(filePath)
+  } catch {
+    return null
+  }
+  const dir = path.dirname(filePath)
+  const base = {
+    id: trackId(filePath),
+    path: filePath,
+    url: toMediaUrl(filePath),
+    size: stat.size,
+    mtime: Math.round(stat.mtimeMs),
+    addedAt: Date.now(),
+  }
+
   let md: Awaited<ReturnType<typeof parseFile>>
   try {
     md = await parseFile(filePath, { duration: true, skipCovers: false })
   } catch {
-    try {
-      const stat = await fsp.stat(filePath)
-      return {
-        id: hash(filePath),
-        path: filePath,
-        url: toMediaUrl(filePath),
-        title: path.basename(filePath, path.extname(filePath)),
-        artist: 'Unknown Artist',
-        albumArtist: 'Unknown Artist',
-        album: 'Unknown Album',
-        genre: '',
-        year: null,
-        duration: 0,
-        bitrate: 0,
-        sampleRate: 0,
-        trackNo: null,
-        discNo: null,
-        cover: null,
-        size: stat.size,
-        addedAt: Date.now(),
-      }
-    } catch {
-      return null
+    return {
+      ...base,
+      title: path.basename(filePath, path.extname(filePath)),
+      artist: 'Unknown Artist',
+      albumArtist: 'Unknown Artist',
+      album: 'Unknown Album',
+      genre: '',
+      year: null,
+      duration: 0,
+      bitrate: 0,
+      sampleRate: 0,
+      trackNo: null,
+      discNo: null,
+      cover: await resolveCover(dir, undefined),
+      trackGain: null,
+      albumGain: null,
     }
   }
 
   const common = md.common
-  const stat = await fsp.stat(filePath)
-  const artist = common.artist || common.albumartist || (common.artists && common.artists[0]) || 'Unknown Artist'
-  const albumArtist = common.albumartist || artist
-  const album = common.album || 'Unknown Album'
-  const cover = await resolveCover(`${albumArtist}|${album}`, dir, common.picture?.[0])
-
+  const artist = common.artist || common.albumartist || common.artists?.[0] || 'Unknown Artist'
   return {
-    id: hash(filePath),
-    path: filePath,
-    url: toMediaUrl(filePath),
+    ...base,
     title: common.title || path.basename(filePath, path.extname(filePath)),
     artist,
-    albumArtist,
-    album,
-    genre: Array.isArray(common.genre) ? common.genre[0] ?? '' : common.genre ?? '',
+    albumArtist: common.albumartist || artist,
+    album: common.album || 'Unknown Album',
+    genre: Array.isArray(common.genre) ? common.genre[0] ?? '' : '',
     year: common.year ?? null,
     duration: md.format.duration ?? 0,
     bitrate: Math.round((md.format.bitrate ?? 0) / 1000),
     sampleRate: md.format.sampleRate ?? 0,
     trackNo: common.track?.no ?? null,
     discNo: common.disk?.no ?? null,
-    cover,
-    size: stat.size,
-    addedAt: Date.now(),
+    cover: await resolveCover(dir, common.picture?.[0]),
+    trackGain: gainOf(common.replaygain_track_gain),
+    albumGain: gainOf(common.replaygain_album_gain),
   }
 }
 
@@ -197,70 +221,187 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
   return results
 }
 
-export async function scanFolders(
-  folders: string[],
-  onProgress: (done: number, total: number) => void,
-): Promise<Track[]> {
-  const files = await collectFiles(folders)
-  folderArtCache.clear()
-  const total = files.length
-  let done = 0
-
-  const parsed = await mapPool(files, 8, async (file) => {
-    const track = await readTrack(file, path.dirname(file)).catch(() => null)
-    done += 1
-    if (done % 10 === 0 || done === total) onProgress(done, total)
-    return track
-  })
-
-  onProgress(done, total)
-  return parsed.filter((track): track is Track => Boolean(track))
+export interface ScanResult {
+  /** New or changed files, fully read. */
+  tracks: Track[]
+  /** Paths whose file is unchanged since the renderer last saw it. */
+  kept: string[]
 }
 
-/** Scans arbitrary dropped paths — files and/or folders. */
+let scanInFlight: Promise<ScanResult> | null = null
+
+/**
+ * Walks the library folders. Files whose modification time matches `known`
+ * are reported as kept instead of being parsed again, so a rescan of a large,
+ * mostly unchanged library takes seconds instead of minutes.
+ */
+export function scanFolders(
+  folders: string[],
+  known: Record<string, number>,
+  onProgress: (done: number, total: number) => void,
+): Promise<ScanResult> {
+  // A second request while one is running joins the running scan.
+  if (scanInFlight) return scanInFlight
+  scanInFlight = (async () => {
+    const files = await collectFiles(folders)
+    folderArtCache.clear()
+    const total = files.length
+    let done = 0
+    const kept: string[] = []
+
+    const parsed = await mapPool(files, 8, async (file) => {
+      let track: Track | null = null
+      try {
+        const mtime = known[file]
+        if (mtime !== undefined) {
+          const stat = await fsp.stat(file)
+          if (Math.round(stat.mtimeMs) === mtime) kept.push(file)
+          else track = await readTrack(file)
+        } else {
+          track = await readTrack(file)
+        }
+      } catch {
+        track = null
+      }
+      done += 1
+      if (done % 25 === 0 || done === total) onProgress(done, total)
+      return track
+    })
+
+    onProgress(done, total)
+    return { tracks: parsed.filter((track): track is Track => Boolean(track)), kept }
+  })().finally(() => {
+    scanInFlight = null
+  })
+  return scanInFlight
+}
+
+/** Reads dropped paths (files and/or folders) and grants them to the media protocol. */
 export async function scanPaths(paths: string[]): Promise<Track[]> {
   const files: string[] = []
   for (const target of paths) {
     try {
       const stat = await fsp.stat(target)
-      if (stat.isDirectory()) await walk(target, files)
-      else if (stat.isFile() && isAudioFile(target)) files.push(target)
+      if (stat.isDirectory()) {
+        grantDirectory(target)
+        await walk(target, files)
+      } else if (stat.isFile() && isAudioFile(target)) {
+        grantFile(target)
+        files.push(target)
+      }
     } catch {
-      if (isAudioFile(target)) files.push(target)
+      /* unreadable path */
     }
   }
-  const parsed = await mapPool(files, 6, (file) => readTrack(file, path.dirname(file)).catch(() => null))
+  const parsed = await mapPool(files, 6, (file) => readTrack(file).catch(() => null))
   return parsed.filter((track): track is Track => Boolean(track))
 }
 
 export async function probeFile(filePath: string): Promise<Track | null> {
+  if (!isAudioFile(filePath)) return null
+  grantFile(filePath)
   try {
-    return await readTrack(filePath, path.dirname(filePath))
+    return await readTrack(filePath)
   } catch {
     return null
   }
 }
 
+/**
+ * Writes edited tags into the audio file itself. Returns the re-read track, or
+ * an error message when the file is read-only or the format cannot be tagged.
+ */
+export async function writeTags(filePath: string, edit: TagEdit): Promise<{ track?: Track; error?: string }> {
+  let file: TagFile | null = null
+  try {
+    file = TagFile.createFromPath(filePath)
+    const tag = file.tag
+    if (edit.title !== undefined) tag.title = edit.title
+    if (edit.artist !== undefined) tag.performers = edit.artist ? [edit.artist] : []
+    if (edit.albumArtist !== undefined) tag.albumArtists = edit.albumArtist ? [edit.albumArtist] : []
+    if (edit.album !== undefined) tag.album = edit.album
+    if (edit.genre !== undefined) tag.genres = edit.genre ? [edit.genre] : []
+    if (edit.year !== undefined) tag.year = edit.year && edit.year > 0 ? edit.year : 0
+    file.save()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'This file could not be tagged' }
+  } finally {
+    file?.dispose()
+  }
+  const track = await readTrack(filePath)
+  return track ? { track } : { error: 'The file could not be read back after saving' }
+}
+
+/** Deletes cached artwork that no track points at any more. */
+export async function pruneCovers(usedUrls: string[]): Promise<number> {
+  const dir = coversDir()
+  const used = new Set(usedUrls)
+  let removed = 0
+  for (const name of await fsp.readdir(dir)) {
+    const full = path.join(dir, name)
+    if (used.has(toMediaUrl(full))) continue
+    try {
+      await fsp.unlink(full)
+      removed += 1
+    } catch {
+      /* in use or already gone */
+    }
+  }
+  return removed
+}
+
+/* ------------------------------- watching ------------------------------- */
+
+let watchers: fs.FSWatcher[] = []
+let watchTimer: NodeJS.Timeout | null = null
+
+/**
+ * Watches the library folders and calls `onChange` (debounced) when audio files
+ * are added, removed or changed, so the library refreshes on its own.
+ */
+export function watchFolders(folders: string[], onChange: () => void): void {
+  for (const watcher of watchers) watcher.close()
+  watchers = []
+  for (const folder of folders) {
+    try {
+      const watcher = fs.watch(folder, { recursive: true }, (_event, name) => {
+        if (!name || !isAudioFile(String(name))) return
+        if (watchTimer) clearTimeout(watchTimer)
+        watchTimer = setTimeout(onChange, 2500)
+      })
+      watcher.on('error', () => watcher.close())
+      watchers.push(watcher)
+    } catch (err) {
+      console.warn('[library] cannot watch', folder, err)
+    }
+  }
+}
+
+/* -------------------------------- dialogs -------------------------------- */
+
 export async function pickFolders(win: BrowserWindow | null): Promise<string[]> {
-  const result = await dialog.showOpenDialog(win ?? undefined as unknown as BrowserWindow, {
+  const options: Electron.OpenDialogOptions = {
     title: 'Choose music folders',
     properties: ['openDirectory', 'multiSelections'],
     buttonLabel: 'Add folders',
-  })
+  }
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
   return result.canceled ? [] : result.filePaths
 }
 
 export async function importM3u(win: BrowserWindow | null): Promise<{ name: string; paths: string[] } | null> {
-  const result = await dialog.showOpenDialog(win ?? undefined as unknown as BrowserWindow, {
+  const options: Electron.OpenDialogOptions = {
     title: 'Import playlist',
     filters: [{ name: 'Playlists', extensions: ['m3u', 'm3u8'] }],
     properties: ['openFile'],
-  })
+  }
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
   if (result.canceled || !result.filePaths[0]) return null
   const file = result.filePaths[0]
   const raw = await fsp.readFile(file, 'utf8')
   const baseDir = path.dirname(file)
   const paths = raw
+    .replace(/^﻿/, '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#'))
@@ -273,11 +414,12 @@ export async function exportM3u(
   name: string,
   entries: { path: string; duration: number; title: string; artist: string }[],
 ): Promise<boolean> {
-  const result = await dialog.showSaveDialog(win ?? undefined as unknown as BrowserWindow, {
+  const options: Electron.SaveDialogOptions = {
     title: 'Export playlist',
     defaultPath: `${name.replace(/[\\/:*?"<>|]/g, '')}.m3u8`,
     filters: [{ name: 'M3U playlist', extensions: ['m3u8'] }],
-  })
+  }
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
   if (result.canceled || !result.filePath) return false
   const lines = ['#EXTM3U']
   for (const entry of entries) {

@@ -19,35 +19,49 @@ import fs from 'node:fs'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { initStore, getState, patchState, flush } from './store.js'
-import { registerMediaProtocol } from './media.js'
-import { scanFolders, scanPaths, probeFile, pickFolders, importM3u, exportM3u, isAudioFile } from './library.js'
+import { grantDirectory, registerMediaProtocol } from './media.js'
+import {
+  exportM3u,
+  importM3u,
+  isAudioFile,
+  pickFolders,
+  probeFile,
+  pruneCovers,
+  scanFolders,
+  scanPaths,
+  watchFolders,
+  writeTags,
+  type TagEdit,
+} from './library.js'
 import { getLyrics } from './lyrics.js'
 import * as updater from './updater.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEV_URL = process.env.VITE_DEV_SERVER_URL
 
+// A separate profile (used for screenshots and testing) keeps a real library untouched.
+if (process.env.MEOWPLAYER_PROFILE) {
+  app.setPath('userData', path.resolve(process.env.MEOWPLAYER_PROFILE))
+}
+
+type CloseBehavior = 'ask' | 'tray' | 'quit'
+
 let mainWindow: BrowserWindow | null = null
 let miniWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-let normalBounds: Electron.Rectangle | null = null
 
 let pendingFiles: string[] = []
-let closeChoice: 'ask' | 'tray' | 'quit' = 'ask'
-let closeDialogOpen = false
+let closeChoice: CloseBehavior = 'ask'
 let quitting = false
 let lastMiniState: unknown = null
 let thumbIcons: Record<string, Electron.NativeImage> = {}
 let thumbPlaying = false
 
-// The Windows media overlay (Action Center / Quick Settings) is driven by the
-// renderer's MediaSession; this keeps that Chromium service available.
+// The Windows media overlay is driven by the renderer's MediaSession; this
+// keeps that Chromium service available. Chromium's own media-key listener
+// would otherwise claim the hardware keys before globalShortcut can.
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('enable-features', 'MediaSessionService')
-  // Chromium's own media-key listener claims Play/Pause and Next/Previous
-  // before globalShortcut can, which made the hardware keys a no-op on
-  // Windows. Turning it off hands the keys to the shortcuts below; the media
-  // overlay keeps working through the renderer's MediaSession handlers.
   app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling')
 }
 
@@ -62,10 +76,7 @@ const preloadPath = (): string => path.join(__dirname, 'preload.cjs')
 
 /* --------------------------- crash logging --------------------------- */
 
-/**
- * Local, opt-out-free crash log so a user can send us something useful when
- * the app misbehaves. Nothing leaves the machine.
- */
+/** Local crash log so a user can send something useful. Nothing leaves the machine. */
 function crashLogPath(): string {
   return path.join(app.getPath('userData'), 'logs', 'crash.log')
 }
@@ -91,36 +102,35 @@ process.on('unhandledRejection', (reason) => {
   console.error('[crash]', reason)
 })
 
-function appIconPath(): string | undefined {
-  const candidates = [
-    path.join(app.getAppPath(), 'assets', 'icon.png'),
-    path.join(__dirname, '..', 'assets', 'icon.png'),
-  ]
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate
-  }
-  return undefined
+function assetPath(name: string): string | undefined {
+  const candidates = [path.join(app.getAppPath(), 'assets', name), path.join(__dirname, '..', 'assets', name)]
+  return candidates.find((candidate) => fs.existsSync(candidate))
 }
 
 /* --------------------------- default apps --------------------------- */
 
 /**
- * Audio extensions MeowPlayer offers to open. Registering a ProgID for each one
- * (plus a Capabilities block under HKEY_CURRENT_USER) is what makes the app
- * appear in Windows Settings → Apps → Default apps, instead of only in the
- * "Open with" context menu.
+ * Registers a ProgID per audio extension plus a Capabilities block under
+ * HKEY_CURRENT_USER, which is what lists MeowPlayer in Settings → Apps →
+ * Default apps. It only runs once per installed version, and never from a
+ * development build (which would register the dev Electron binary).
  */
 const HANDLED_EXTENSIONS = ['.mp3', '.flac', '.m4a', '.aac', '.wav', '.ogg', '.opus', '.wma', '.aiff', '.aif', '.alac']
 const PROG_ID = 'MeowPlayer.AudioFile'
 
 function registerDefaultApps(): void {
-  if (process.platform !== 'win32') return
+  if (process.platform !== 'win32' || process.defaultApp || !app.isPackaged) return
 
-  const command = process.defaultApp
-    ? `"${process.execPath}" "${app.getAppPath()}" "%1"`
-    : `"${process.execPath}" "%1"`
-  const iconSource = path.join(app.getAppPath(), 'assets', 'icon.ico')
-  const icon = fs.existsSync(iconSource) ? `"${iconSource}",0` : `"${process.execPath}",0`
+  const marker = path.join(app.getPath('userData'), 'registered-version')
+  try {
+    if (fs.readFileSync(marker, 'utf8').trim() === `${app.getVersion()}|${process.execPath}`) return
+  } catch {
+    /* first run */
+  }
+
+  const command = `"${process.execPath}" "%1"`
+  const iconSource = assetPath('icon.ico')
+  const icon = iconSource ? `"${iconSource}",0` : `"${process.execPath}",0`
   const capabilities = 'Software\\MeowPlayer\\Capabilities'
 
   const entries: string[][] = [
@@ -132,98 +142,108 @@ function registerDefaultApps(): void {
     ['add', `HKCU\\${capabilities}`, '/v', 'ApplicationIcon', '/d', icon, '/f'],
     ['add', 'HKCU\\Software\\RegisteredApplications', '/v', 'MeowPlayer', '/d', capabilities, '/f'],
   ]
-
   for (const extension of HANDLED_EXTENSIONS) {
     entries.push(['add', `HKCU\\${capabilities}\\FileAssociations`, '/v', extension, '/d', PROG_ID, '/f'])
     entries.push(['add', `HKCU\\Software\\Classes\\${extension}\\OpenWithProgids`, '/v', PROG_ID, '/d', '', '/f'])
   }
 
+  let failed = false
+  let pending = entries.length
   for (const args of entries) {
     execFile('reg', args, { windowsHide: true }, (error, _stdout, stderr) => {
-      if (error) console.warn('[default-apps] could not register MeowPlayer', stderr || error.message)
+      if (error) {
+        failed = true
+        console.warn('[default-apps] could not register MeowPlayer', stderr || error.message)
+      }
+      pending -= 1
+      if (pending === 0 && !failed) {
+        try {
+          fs.writeFileSync(marker, `${app.getVersion()}|${process.execPath}`)
+        } catch {
+          /* try again next launch */
+        }
+      }
     })
   }
 }
 
 /* ------------------------------ close choice ----------------------------- */
 
-function readCloseChoice(): 'ask' | 'tray' | 'quit' {
-  const state = getState() as Record<string, any>
-  const value = state?.settings?.closeBehavior
-  if (value === 'ask' || value === 'tray' || value === 'quit') return value
-  if (typeof state?.settings?.closeToTray === 'boolean') return state.settings.closeToTray ? 'tray' : 'quit'
+const isCloseBehavior = (value: unknown): value is CloseBehavior =>
+  value === 'ask' || value === 'tray' || value === 'quit'
+
+function readCloseChoice(): CloseBehavior {
+  const settings = (getState().settings ?? {}) as Record<string, unknown>
+  if (isCloseBehavior(settings.closeBehavior)) return settings.closeBehavior
+  if (typeof settings.closeToTray === 'boolean') return settings.closeToTray ? 'tray' : 'quit'
   return 'ask'
 }
 
-async function askCloseChoice(win: BrowserWindow): Promise<void> {
-  if (closeDialogOpen || win.isDestroyed()) return
-  closeDialogOpen = true
-  try {
-    const { response, checkboxChecked } = await dialog.showMessageBox(win, {
-      type: 'question',
-      title: 'Close MeowPlayer',
-      message: 'Close MeowPlayer or keep the music running?',
-      detail:
-        'Choosing the system tray hides the window and keeps playback going from the tray icon.\nYou can change this later in Settings → Playback.',
-      buttons: ['Minimize to tray', 'Quit MeowPlayer', 'Cancel'],
-      defaultId: 0,
-      cancelId: 2,
-      noLink: true,
-      checkboxLabel: 'Remember my choice',
-      checkboxChecked: false,
-    })
+/**
+ * Asks the renderer to show its own close dialog, so the question matches the
+ * app's theme instead of being a plain Windows message box. The answer comes
+ * back on 'app:closeChoice'.
+ */
+function askCloseChoice(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (!win.isVisible()) win.show()
+  win.focus()
+  win.webContents.send('app:closeRequest')
+}
 
-    if (response !== 0 && response !== 1) return
-    const choice: 'tray' | 'quit' = response === 0 ? 'tray' : 'quit'
-
-    if (checkboxChecked) {
-      closeChoice = choice
-      const state = getState() as Record<string, any>
-      patchState({ settings: { ...(state?.settings ?? {}), closeBehavior: choice } })
-      flush()
-    }
-
-    if (choice === 'tray') win.hide()
-    else {
-      quitting = true
-      app.quit()
-    }
-  } finally {
-    closeDialogOpen = false
+function applyCloseChoice(choice: CloseBehavior, remember: boolean): void {
+  const win = mainWindow
+  if (remember && choice !== 'ask') {
+    closeChoice = choice
+    // The renderer owns the settings object; it saves this choice itself.
+    sendToRenderer('settings:closeBehavior', choice)
+    const settings = (getState().settings ?? {}) as Record<string, unknown>
+    patchState({ settings: { ...settings, closeBehavior: choice } })
+    flush()
+  }
+  if (choice === 'tray') win?.hide()
+  else if (choice === 'quit') {
+    quitting = true
+    app.quit()
   }
 }
 
 /* ----------------------------- windows ----------------------------- */
 
+/** Windows 11 frosted glass behind the page; older Windows builds just stay opaque. */
+function applyAcrylic(win: BrowserWindow): void {
+  if (process.platform !== 'win32') return
+  try {
+    win.setBackgroundMaterial('acrylic')
+  } catch {
+    /* not supported on this Windows build */
+  }
+}
+
+const secureWebPreferences = (): Electron.WebPreferences => ({
+  preload: preloadPath(),
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
+  spellcheck: false,
+  backgroundThrottling: false,
+})
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1360,
     height: 880,
-    minWidth: 1000,
-    minHeight: 640,
+    minWidth: 640,
+    minHeight: 480,
     show: false,
     frame: false,
     title: 'MeowPlayer',
-    icon: appIconPath(),
+    icon: assetPath('icon.png'),
     backgroundColor: '#0a0c10',
     backgroundMaterial: 'acrylic',
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      spellcheck: false,
-      backgroundThrottling: false,
-    },
+    webPreferences: secureWebPreferences(),
   })
-
-  if (process.platform === 'win32') {
-    try {
-      win.setBackgroundMaterial('acrylic')
-    } catch {
-      /* older Windows builds */
-    }
-  }
+  applyAcrylic(win)
 
   win.once('ready-to-show', () => {
     win.show()
@@ -254,7 +274,7 @@ function createWindow(): BrowserWindow {
     }
     if (closeChoice === 'quit') return
     event.preventDefault()
-    void askCloseChoice(win)
+    askCloseChoice(win)
   })
 
   win.on('closed', () => {
@@ -265,6 +285,10 @@ function createWindow(): BrowserWindow {
     if (/^https?:/.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (DEV_URL && url.startsWith(DEV_URL)) return
+    event.preventDefault()
+  })
 
   return win
 }
@@ -273,14 +297,17 @@ function ensureMini(): BrowserWindow {
   if (miniWindow && !miniWindow.isDestroyed()) return miniWindow
 
   const display = screen.getPrimaryDisplay()
-  const width = 404
-  const height = 176
+  const width = 340
+  const height = 196
 
+  // A see-through window: the card inside is translucent, so the desktop
+  // shows through it. (Acrylic is not used here because Windows turns it
+  // solid whenever the window is not focused, and the mini player rarely is.)
   const win = new BrowserWindow({
     width,
     height,
-    x: display.workArea.x + display.workArea.width - width - 16,
-    y: display.workArea.y + display.workArea.height - height - 16,
+    x: display.workArea.x + display.workArea.width - width - 12,
+    y: display.workArea.y + display.workArea.height - height - 12,
     frame: false,
     transparent: true,
     resizable: false,
@@ -294,13 +321,7 @@ function ensureMini(): BrowserWindow {
     show: false,
     backgroundColor: '#00000000',
     roundedCorners: false,
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      backgroundThrottling: false,
-    },
+    webPreferences: secureWebPreferences(),
   })
 
   if (DEV_URL) void win.loadURL(`${DEV_URL}#mini`)
@@ -311,8 +332,11 @@ function ensureMini(): BrowserWindow {
     win.showInactive()
     if (lastMiniState) win.webContents.send('mini:state', lastMiniState)
   })
+  win.on('show', () => sendToRenderer('mini:visible', true))
+  win.on('hide', () => sendToRenderer('mini:visible', false))
   win.on('closed', () => {
     if (miniWindow === win) miniWindow = null
+    sendToRenderer('mini:visible', false)
   })
 
   miniWindow = win
@@ -322,9 +346,7 @@ function ensureMini(): BrowserWindow {
 function showMini(): void {
   const win = ensureMini()
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
-  // ensureMini() only shows the window the first time it is created, so the
-  // second trip into mini mode used to leave an invisible window behind.
-  if (win && !win.isDestroyed() && !win.isVisible()) win.showInactive()
+  if (!win.isDestroyed() && !win.isVisible()) win.showInactive()
 }
 
 function showMain(): void {
@@ -342,30 +364,20 @@ function sendToRenderer(channel: string, payload?: unknown): void {
 /* ------------------------------ tray ------------------------------ */
 
 function trayImage(): Electron.NativeImage {
-  const candidates = [
-    path.join(app.getAppPath(), 'assets', 'tray.png'),
-    path.join(__dirname, '..', 'assets', 'tray.png'),
-  ]
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      const image = nativeImage.createFromPath(candidate)
-      if (!image.isEmpty()) return image.resize({ width: 16, height: 16 })
-    }
-  }
-
-  // Native image loading cannot always read from inside app.asar — copy it out once.
-  try {
-    const source = path.join(app.getAppPath(), 'assets', 'tray.png')
-    if (fs.existsSync(source)) {
+  const source = assetPath('tray.png')
+  if (source) {
+    const image = nativeImage.createFromPath(source)
+    if (!image.isEmpty()) return image.resize({ width: 16, height: 16 })
+    // Native image loading cannot always read from inside app.asar, so copy it out once.
+    try {
       const target = path.join(app.getPath('userData'), 'tray-icon.png')
       fs.copyFileSync(source, target)
-      const image = nativeImage.createFromPath(target)
-      if (!image.isEmpty()) return image.resize({ width: 16, height: 16 })
+      const copy = nativeImage.createFromPath(target)
+      if (!copy.isEmpty()) return copy.resize({ width: 16, height: 16 })
+    } catch (err) {
+      console.warn('[tray] could not extract the tray icon', err)
     }
-  } catch (err) {
-    console.warn('[tray] could not extract the tray icon', err)
   }
-
   return nativeImage.createEmpty()
 }
 
@@ -383,20 +395,24 @@ function createTray(): void {
     return
   }
   tray.setToolTip('MeowPlayer')
-
-  const menu = Menu.buildFromTemplate([
-    { label: 'Open MeowPlayer', click: () => showMain() },
-    { type: 'separator' },
-    { label: 'Play / Pause', click: () => sendToRenderer('player:cmd', 'playpause') },
-    { label: 'Next track', click: () => sendToRenderer('player:cmd', 'next') },
-    { label: 'Previous track', click: () => sendToRenderer('player:cmd', 'prev') },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { quitting = true; app.quit() } },
-  ])
-  tray.setContextMenu(menu)
-
-  // Left click opens the full player, right click opens the menu attached with
-  // setContextMenu above. Nothing on the tray opens the mini player.
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Open MeowPlayer', click: () => showMain() },
+      { label: 'Mini player', click: () => showMini() },
+      { type: 'separator' },
+      { label: 'Play / Pause', click: () => sendToRenderer('player:cmd', 'playpause') },
+      { label: 'Next track', click: () => sendToRenderer('player:cmd', 'next') },
+      { label: 'Previous track', click: () => sendToRenderer('player:cmd', 'prev') },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          quitting = true
+          app.quit()
+        },
+      },
+    ]),
+  )
   tray.on('click', () => showMain())
 }
 
@@ -407,19 +423,16 @@ function updateThumbar(playing: boolean): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
 
-  const prev = thumbIcons.prev
-  const next = thumbIcons.next
+  const { prev, next } = thumbIcons
   const main = playing ? thumbIcons.pause : thumbIcons.play
   if (!prev || !next || !main) return
 
-  const buttons: Electron.ThumbarButton[] = [
-    { tooltip: 'Previous', icon: prev, click: () => sendToRenderer('player:cmd', 'prev') },
-    { tooltip: playing ? 'Pause' : 'Play', icon: main, click: () => sendToRenderer('player:cmd', 'playpause') },
-    { tooltip: 'Next', icon: next, click: () => sendToRenderer('player:cmd', 'next') },
-  ]
-
   try {
-    win.setThumbarButtons(buttons)
+    win.setThumbarButtons([
+      { tooltip: 'Previous', icon: prev, click: () => sendToRenderer('player:cmd', 'prev') },
+      { tooltip: playing ? 'Pause' : 'Play', icon: main, click: () => sendToRenderer('player:cmd', 'playpause') },
+      { tooltip: 'Next', icon: next, click: () => sendToRenderer('player:cmd', 'next') },
+    ])
     win.setThumbnailToolTip('MeowPlayer')
   } catch (err) {
     console.warn('[thumbar] could not set the thumbnail buttons', err)
@@ -429,24 +442,22 @@ function updateThumbar(playing: boolean): void {
 /* ---------------------------- shortcuts ---------------------------- */
 
 function registerShortcuts(): void {
-  const fire = (action: string): void => sendToRenderer('player:cmd', action)
   const keys: [string, string][] = [
     ['MediaPlayPause', 'playpause'],
     ['MediaStop', 'stop'],
     ['MediaNextTrack', 'next'],
     ['MediaPreviousTrack', 'prev'],
   ]
-  // register() reports failure by returning false (it does not throw) when the
-  // key is already taken, so the old try/catch hid every failure. Retry a few
-  // times, because Windows sometimes still holds the key while the window is
-  // being created, and log whatever stayed unbound.
+  // register() returns false (it does not throw) when another app holds the
+  // key. Windows sometimes still holds it while the window is being created,
+  // so retry a few times before giving up.
   const bind = (): string[] => {
     const failed: string[] = []
     for (const [accelerator, action] of keys) {
       if (globalShortcut.isRegistered(accelerator)) continue
       let ok = false
       try {
-        ok = globalShortcut.register(accelerator, () => fire(action))
+        ok = globalShortcut.register(accelerator, () => sendToRenderer('player:cmd', action))
       } catch {
         ok = false
       }
@@ -463,14 +474,25 @@ function registerShortcuts(): void {
       setTimeout(attempt, 1200)
       return
     }
-    if (failed.length > 0) {
-      console.warn('[shortcuts] media keys held by another app:', failed.join(', '))
-    }
+    if (failed.length > 0) console.warn('[shortcuts] media keys held by another app:', failed.join(', '))
   }
   attempt()
 }
 
 /* -------------------------------- ipc ------------------------------- */
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+}
+
+async function showOpen(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
+  return mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options)
+}
 
 function registerIpc(): void {
   ipcMain.on('win:minimize', () => mainWindow?.minimize())
@@ -483,16 +505,29 @@ function registerIpc(): void {
   ipcMain.handle('win:isMaximized', () => mainWindow?.isMaximized() ?? false)
 
   ipcMain.handle('library:pickFolders', () => pickFolders(mainWindow))
-  ipcMain.handle('library:scan', async (_e, folders: string[]) => {
-    const win = mainWindow
-    return scanFolders(folders ?? [], (done, total) => {
-      win?.webContents.send('library:progress', { done, total })
-    })
+  ipcMain.handle('library:scan', async (_e, folders: unknown, known: unknown) => {
+    const list = Array.isArray(folders) ? folders.filter((item): item is string => typeof item === 'string') : []
+    for (const folder of list) grantDirectory(folder)
+    const knownMap = known && typeof known === 'object' ? (known as Record<string, number>) : {}
+    return scanFolders(list, knownMap, (done, total) => sendToRenderer('library:progress', { done, total }))
   })
-  ipcMain.handle('library:ingest', async (_e, paths: string[]) => scanPaths(paths ?? []))
-  ipcMain.handle('library:probe', (_e, file: string) => probeFile(file))
+  ipcMain.handle('library:ingest', async (_e, paths: unknown) =>
+    scanPaths(Array.isArray(paths) ? paths.filter((item): item is string => typeof item === 'string') : []),
+  )
+  ipcMain.handle('library:probe', (_e, file: unknown) => (typeof file === 'string' ? probeFile(file) : null))
+  ipcMain.handle('library:writeTags', (_e, file: unknown, edit: unknown) => {
+    if (typeof file !== 'string' || !edit || typeof edit !== 'object') return { error: 'Invalid request' }
+    return writeTags(file, edit as TagEdit)
+  })
+  ipcMain.handle('library:pruneCovers', (_e, used: unknown) =>
+    pruneCovers(Array.isArray(used) ? used.filter((item): item is string => typeof item === 'string') : []),
+  )
+  ipcMain.on('library:watch', (_e, folders: unknown) => {
+    const list = Array.isArray(folders) ? folders.filter((item): item is string => typeof item === 'string') : []
+    watchFolders(list, () => sendToRenderer('library:changed'))
+  })
   ipcMain.handle('library:pickImage', async () => {
-    const result = await dialog.showOpenDialog(mainWindow ?? undefined as unknown as BrowserWindow, {
+    const result = await showOpen({
       title: 'Choose a cover image',
       properties: ['openFile'],
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
@@ -502,21 +537,14 @@ function registerIpc(): void {
     if (!file) return null
     try {
       const stat = await fs.promises.stat(file)
-      if (!stat.isFile() || stat.size > 6 * 1024 * 1024) return null
-      const ext = path.extname(file).toLowerCase()
-      const mime =
-        ext === '.png' ? 'image/png'
-          : ext === '.webp' ? 'image/webp'
-            : ext === '.gif' ? 'image/gif'
-              : ext === '.bmp' ? 'image/bmp'
-                : 'image/jpeg'
+      if (!stat.isFile() || stat.size > 12 * 1024 * 1024) return null
       // Shrink large artwork before it lands in the settings file.
       const image = nativeImage.createFromPath(file)
       if (!image.isEmpty()) {
         const { width } = image.getSize()
-        const resized = width > 512 ? image.resize({ width: 512, quality: 'good' }) : image
-        return resized.toDataURL()
+        return (width > 512 ? image.resize({ width: 512, quality: 'good' }) : image).toDataURL()
       }
+      const mime = IMAGE_MIME[path.extname(file).toLowerCase()] ?? 'image/jpeg'
       const data = await fs.promises.readFile(file)
       return `data:${mime};base64,${data.toString('base64')}`
     } catch (err) {
@@ -525,38 +553,43 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle('library:importM3u', () => importM3u(mainWindow))
-  ipcMain.handle('library:exportM3u', (_e, name: string, entries: any[]) => exportM3u(mainWindow, name, entries))
+  ipcMain.handle('library:exportM3u', (_e, name: unknown, entries: unknown) =>
+    exportM3u(mainWindow, String(name ?? 'Playlist'), Array.isArray(entries) ? entries : []),
+  )
 
   ipcMain.handle('store:load', () => getState())
-  ipcMain.handle('store:save', (_e, patch: Record<string, unknown>) => {
-    patchState(patch ?? {})
+  ipcMain.handle('store:save', (_e, patch: unknown) => {
+    if (patch && typeof patch === 'object' && !Array.isArray(patch)) patchState(patch as Record<string, unknown>)
     return true
   })
 
-  ipcMain.handle('lyrics:get', (_e, query: any) => getLyrics(query ?? {}))
+  ipcMain.handle('lyrics:get', (_e, query: unknown) =>
+    getLyrics((query && typeof query === 'object' ? query : {}) as Parameters<typeof getLyrics>[0]),
+  )
 
-  ipcMain.handle('app:openExternal', async (_e, url: string) => {
-    if (/^https?:/i.test(url)) await shell.openExternal(url)
+  ipcMain.handle('app:openExternal', async (_e, url: unknown) => {
+    if (typeof url === 'string' && /^https:\/\//i.test(url)) await shell.openExternal(url)
   })
   ipcMain.handle('app:version', () => app.getVersion())
-  ipcMain.handle('app:revealFile', (_e, file: string) => {
-    if (file) shell.showItemInFolder(file)
+  ipcMain.handle('app:revealFile', (_e, file: unknown) => {
+    if (typeof file === 'string' && file) shell.showItemInFolder(file)
     return true
   })
   ipcMain.handle('app:openDefaultApps', () => {
     void shell.openExternal('ms-settings:defaultapps')
     return true
   })
-  ipcMain.handle('app:exportSettings', async (_e, json: string) => {
-    const result = await dialog.showSaveDialog(mainWindow ?? undefined as unknown as BrowserWindow, {
+  ipcMain.handle('app:exportSettings', async (_e, json: unknown) => {
+    const options: Electron.SaveDialogOptions = {
       title: 'Export MeowPlayer settings',
       defaultPath: 'meowplayer-settings.json',
       filters: [{ name: 'JSON', extensions: ['json'] }],
       buttonLabel: 'Export',
-    })
+    }
+    const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return false
     try {
-      await fs.promises.writeFile(result.filePath, json, 'utf8')
+      await fs.promises.writeFile(result.filePath, String(json ?? '{}'), 'utf8')
       return true
     } catch (err) {
       console.warn('[settings] export failed', err)
@@ -564,7 +597,7 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle('app:importSettings', async () => {
-    const result = await dialog.showOpenDialog(mainWindow ?? undefined as unknown as BrowserWindow, {
+    const result = await showOpen({
       title: 'Import MeowPlayer settings',
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
@@ -573,57 +606,53 @@ function registerIpc(): void {
     const file = result.canceled ? null : result.filePaths[0]
     if (!file) return null
     try {
-      const text = await fs.promises.readFile(file, 'utf8')
-      const parsed = JSON.parse(text)
-      return parsed && typeof parsed === 'object' ? parsed : null
+      const parsed = JSON.parse(await fs.promises.readFile(file, 'utf8'))
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
     } catch (err) {
       console.warn('[settings] import failed', err)
       return null
     }
   })
-  ipcMain.handle('app:notify', (_e, payload: { title?: string; body?: string }) => {
+  ipcMain.handle('app:notify', (_e, payload: { title?: unknown; body?: unknown }) => {
     if (!Notification.isSupported()) return false
-    new Notification({ title: payload?.title ?? 'MeowPlayer', body: payload?.body ?? '' }).show()
+    new Notification({ title: String(payload?.title ?? 'MeowPlayer'), body: String(payload?.body ?? '') }).show()
     return true
   })
-  ipcMain.on('log:error', (_e, message: string) => logCrash('renderer', message))
+  ipcMain.on('log:error', (_e, message: unknown) => logCrash('renderer', String(message)))
   ipcMain.handle('log:path', () => crashLogPath())
 
-  ipcMain.handle('update:check', (_e, force: boolean) => updater.check(Boolean(force)))
-  ipcMain.handle('update:snooze', (_e, days: number) => updater.snooze(Number(days) || 7))
-  ipcMain.handle('update:install', (_e, info: any) => updater.install(info))
-  ipcMain.handle('update:open', (_e, url: string) => updater.openReleasePage(url))
+  ipcMain.handle('update:check', (_e, force: unknown) => updater.check(Boolean(force)))
+  ipcMain.handle('update:snooze', (_e, days: unknown) => updater.snooze(Number(days) || 7))
+  ipcMain.handle('update:install', () => updater.install())
+  ipcMain.handle('update:open', (_e, url: unknown) => updater.openReleasePage(typeof url === 'string' ? url : undefined))
 
-  ipcMain.on('ui:trayPrefs', (_e, prefs: { closeBehavior?: string }) => {
-    if (prefs?.closeBehavior === 'ask' || prefs?.closeBehavior === 'tray' || prefs?.closeBehavior === 'quit') {
-      closeChoice = prefs.closeBehavior
-    }
+  ipcMain.on('app:closeChoice', (_e, payload: { choice?: unknown; remember?: unknown }) => {
+    if (payload?.choice === 'tray' || payload?.choice === 'quit') applyCloseChoice(payload.choice, Boolean(payload.remember))
+  })
+
+  ipcMain.on('ui:trayPrefs', (_e, prefs: { closeBehavior?: unknown }) => {
+    if (isCloseBehavior(prefs?.closeBehavior)) closeChoice = prefs.closeBehavior
   })
 
   ipcMain.on('ui:thumbar', (_e, icons: Record<string, string>) => {
-    thumbIcons = {
-      play: nativeImage.createFromDataURL(icons.play),
-      pause: nativeImage.createFromDataURL(icons.pause),
-      prev: nativeImage.createFromDataURL(icons.prev),
-      next: nativeImage.createFromDataURL(icons.next),
-    }
+    const load = (value: unknown): Electron.NativeImage =>
+      typeof value === 'string' && value.startsWith('data:image/png') ? nativeImage.createFromDataURL(value) : nativeImage.createEmpty()
+    thumbIcons = { play: load(icons?.play), pause: load(icons?.pause), prev: load(icons?.prev), next: load(icons?.next) }
     updateThumbar(thumbPlaying)
   })
-  ipcMain.on('ui:thumbarState', (_e, playing: boolean) => updateThumbar(Boolean(playing)))
+  ipcMain.on('ui:thumbarState', (_e, playing: unknown) => updateThumbar(Boolean(playing)))
 
   ipcMain.on('mini:show', () => showMini())
   ipcMain.on('mini:hide', () => showMain())
   ipcMain.handle('mini:state', () => lastMiniState)
+  ipcMain.handle('mini:isVisible', () => Boolean(miniWindow && !miniWindow.isDestroyed() && miniWindow.isVisible()))
   ipcMain.on('mini:broadcast', (_e, state: unknown) => {
     lastMiniState = state
     if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('mini:state', state)
   })
-  ipcMain.on('mini:cmd', (_e, command: string) => {
-    if (command === 'expand') {
-      showMain()
-      return
-    }
-    if (command === 'hideMini') {
+  ipcMain.on('mini:cmd', (_e, command: unknown) => {
+    if (typeof command !== 'string') return
+    if (command === 'expand' || command === 'hideMini') {
       showMain()
       return
     }
@@ -637,8 +666,9 @@ function filesFromArgv(argv: string[]): string[] {
   return argv.slice(1).filter((arg) => !arg.startsWith('-') && isAudioFile(arg))
 }
 
-  const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
+const ALLOWED_PERMISSIONS = new Set(['media', 'speaker-selection', 'notifications', 'fullscreen', 'clipboard-sanitized-write'])
+
+if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {
@@ -654,14 +684,17 @@ if (!gotLock) {
   app.setAppUserModelId('com.meowplayer.app')
   pendingFiles = filesFromArgv(process.argv)
 
-  void app.whenReady().then(async () => {
+  void app.whenReady().then(() => {
     initStore()
+    closeChoice = readCloseChoice()
     registerMediaProtocol()
     registerIpc()
     registerDefaultApps()
 
-    session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(true))
-    session.defaultSession.setPermissionCheckHandler(() => true)
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) =>
+      callback(ALLOWED_PERMISSIONS.has(permission)),
+    )
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
 
     mainWindow = createWindow()
     createTray()
@@ -677,8 +710,6 @@ if (!gotLock) {
         if (info?.available) sendToRenderer('update:available', info)
       })
     }, 6000)
-
-    closeChoice = readCloseChoice()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()

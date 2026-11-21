@@ -1,9 +1,9 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 
 type Unsubscribe = () => void
 
-function on(channel: string, cb: (payload: any) => void): Unsubscribe {
-  const listener = (_event: unknown, payload: any): void => cb(payload)
+function on<T = unknown>(channel: string, cb: (payload: T) => void): Unsubscribe {
+  const listener = (_event: unknown, payload: T): void => cb(payload)
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
 }
@@ -23,13 +23,20 @@ contextBridge.exposeInMainWorld('api', {
     command: (command: string): void => ipcRenderer.send('mini:cmd', command),
     broadcast: (state: unknown): void => ipcRenderer.send('mini:broadcast', state),
     requestState: (): Promise<unknown> => ipcRenderer.invoke('mini:state'),
+    isVisible: (): Promise<boolean> => ipcRenderer.invoke('mini:isVisible'),
     onState: (cb: (state: unknown) => void): Unsubscribe => on('mini:state', cb),
+    onVisibility: (cb: (visible: boolean) => void): Unsubscribe => on('mini:visible', cb),
   },
   library: {
     pickFolders: (): Promise<string[]> => ipcRenderer.invoke('library:pickFolders'),
-    scan: (folders: string[]): Promise<unknown[]> => ipcRenderer.invoke('library:scan', folders),
+    scan: (folders: string[], known: Record<string, number>): Promise<unknown> =>
+      ipcRenderer.invoke('library:scan', folders, known),
     ingest: (paths: string[]): Promise<unknown[]> => ipcRenderer.invoke('library:ingest', paths),
     probe: (file: string): Promise<unknown> => ipcRenderer.invoke('library:probe', file),
+    writeTags: (file: string, edit: unknown): Promise<unknown> => ipcRenderer.invoke('library:writeTags', file, edit),
+    pruneCovers: (used: string[]): Promise<number> => ipcRenderer.invoke('library:pruneCovers', used),
+    watch: (folders: string[]): void => ipcRenderer.send('library:watch', folders),
+    onChanged: (cb: () => void): Unsubscribe => on('library:changed', cb),
     pickImage: (): Promise<string | null> => ipcRenderer.invoke('library:pickImage'),
     onProgress: (cb: (value: { done: number; total: number }) => void): Unsubscribe => on('library:progress', cb),
     importM3u: (): Promise<{ name: string; paths: string[] } | null> => ipcRenderer.invoke('library:importM3u'),
@@ -45,18 +52,25 @@ contextBridge.exposeInMainWorld('api', {
   },
   files: {
     paths: (files: File[]): string[] =>
-      files.map((file) => {
-        try {
-          return webUtils.getPathForFile(file)
-        } catch {
-          return ''
-        }
-      }).filter(Boolean),
+      files
+        .map((file) => {
+          try {
+            return webUtils.getPathForFile(file)
+          } catch {
+            return ''
+          }
+        })
+        .filter(Boolean),
   },
   ui: {
+    setZoom: (factor: number): void => webFrame.setZoomFactor(Math.min(1.6, Math.max(0.7, factor))),
+    getZoom: (): number => webFrame.getZoomFactor(),
     thumbar: (icons: Record<string, string>): void => ipcRenderer.send('ui:thumbar', icons),
     thumbarState: (playing: boolean): void => ipcRenderer.send('ui:thumbarState', playing),
     trayPrefs: (prefs: { closeBehavior: string }): void => ipcRenderer.send('ui:trayPrefs', prefs),
+    onCloseBehavior: (cb: (value: string) => void): Unsubscribe => on('settings:closeBehavior', cb),
+    onCloseRequest: (cb: () => void): Unsubscribe => on('app:closeRequest', cb),
+    answerClose: (choice: string, remember: boolean): void => ipcRenderer.send('app:closeChoice', { choice, remember }),
     openDefaultApps: (): Promise<boolean> => ipcRenderer.invoke('app:openDefaultApps'),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     exportSettings: (json: string): Promise<boolean> => ipcRenderer.invoke('app:exportSettings', json),
@@ -69,12 +83,10 @@ contextBridge.exposeInMainWorld('api', {
   updates: {
     check: (force: boolean): Promise<unknown> => ipcRenderer.invoke('update:check', force),
     snooze: (days: number): Promise<number> => ipcRenderer.invoke('update:snooze', days),
-    install: (info: unknown): Promise<{ ok: boolean; file?: string; error?: string }> =>
-      ipcRenderer.invoke('update:install', info),
+    install: (): Promise<{ ok: boolean; file?: string; error?: string }> => ipcRenderer.invoke('update:install'),
     openRelease: (url: string): Promise<void> => ipcRenderer.invoke('update:open', url),
     onAvailable: (cb: (info: unknown) => void): Unsubscribe => on('update:available', cb),
   },
-  onMediaKey: (cb: (action: string) => void): Unsubscribe => on('media:key', cb),
   onPlayerCommand: (cb: (command: string) => void): Unsubscribe => on('player:cmd', cb),
   onOpenFiles: (cb: (paths: string[]) => void): Unsubscribe => on('open-files', cb),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),
