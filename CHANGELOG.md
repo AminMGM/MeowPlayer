@@ -2,6 +2,21 @@
 
 All notable changes to MeowPlayer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [2.1.0] - 2026-11-21
+
+### New
+
+- **Smaller, smarter updates.** Updates now download only the parts of MeowPlayer that changed, usually
+  a few megabytes instead of the whole 118 MB installer. Interrupted downloads can be retried, and every
+  download is checked against the release before it can run.
+- **In-app downloader.** Settings → System shows the download with its progress, size and speed, while you
+  keep listening. When it is done, choose **Restart to update**, or it installs the next time you quit.
+
+### Note
+
+Updating from 2.0.0 or 1.8.5 still downloads the full installer once, because those versions have the old
+updater built in. From 2.1.0 on, every update is a small one.
+
 ## [2.0.0] - 2026-11-21
 
 A rebuilt MeowPlayer: a new interface on the same frosted glass, a faster and safer core, and many fixes.
@@ -75,5 +90,6 @@ A rebuilt MeowPlayer: a new interface on the same frosted glass, a faster and sa
 
 - Media keys, lyrics for the whole library and the greeting on the Home screen.
 
+[2.1.0]: https://github.com/AminMGM/MeowPlayer/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/AminMGM/MeowPlayer/compare/v1.8.5...v2.0.0
 [1.8.5]: https://github.com/AminMGM/MeowPlayer/releases/tag/v1.8.5

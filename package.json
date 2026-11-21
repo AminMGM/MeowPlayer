@@ -1,7 +1,7 @@
 {
   "name": "meowplayer",
   "productName": "MeowPlayer",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "A frosted-glass music player for your local library on Windows.",
   "keywords": [
@@ -38,6 +38,7 @@
     "dist": "npm run build && electron-builder --win"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "music-metadata": "^12.5.0",
     "node-taglib-sharp": "^6.0.3",
     "react": "^19.3.1",

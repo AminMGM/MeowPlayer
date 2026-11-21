@@ -98,8 +98,11 @@ Get **`MeowPlayer-Setup-<version>.exe`** from the
 into `C:\Program Files\MeowPlayer`, so Windows asks for permission once.
 
 The installer is not code-signed yet, so Windows SmartScreen may say it does not recognise the app.
-Choose **More info → Run anyway**. MeowPlayer checks GitHub for new versions and can update itself;
-downloaded updates are verified against the checksum GitHub publishes before they run.
+Choose **More info → Run anyway**.
+
+**Updates** download inside the app and only fetch the parts that changed, usually a few megabytes. You
+can keep listening while it downloads, then restart to update or let it install the next time you quit.
+Every download is checked against the release before it runs.
 
 To make MeowPlayer your default player, open **Settings → System → Default music player**.
 

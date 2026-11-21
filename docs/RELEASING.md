@@ -1,8 +1,19 @@
 # Releasing MeowPlayer
 
-MeowPlayer ships as a Windows NSIS installer attached to a GitHub release. The in-app updater reads
-`https://api.github.com/repos/AminMGM/MeowPlayer/releases/latest`, compares its tag with the running
-version and offers the `.exe` asset.
+MeowPlayer ships as a Windows NSIS installer attached to a GitHub release, together with two small
+files the in-app updater uses:
+
+| File | Purpose |
+| --- | --- |
+| `MeowPlayer-Setup-<version>.exe` | The installer, for new installs and full updates |
+| `MeowPlayer-Setup-<version>.exe.blockmap` | The installer's chunk list, used for delta updates |
+| `latest.yml` | The update feed: version, file name, size and SHA-512 |
+
+The updater (electron-updater) reads `latest.yml` from the latest release, downloads the new blockmap and
+the blockmap of the installed version, and fetches only the chunks that differ. It rebuilds the full
+installer from the copy the previous install left in `%LOCALAPPDATA%\meowplayer-updater`, verifies the
+SHA-512 and runs it on restart or quit. **Keep the blockmap on every release**; the next version needs it
+to build its delta. Versions before 2.1.0 use the older updater, which downloads the full `.exe`.
 
 ## Checklist
 
@@ -30,17 +41,30 @@ version and offers the `.exe` asset.
    **Release** workflow, which builds `MeowPlayer-Setup-<version>.exe` on GitHub and attaches it. To
    rebuild the installer for an existing release, run the workflow by hand from the Actions tab.
 
-GitHub publishes a SHA-256 digest for every release asset. The updater verifies the downloaded installer
-against it before running it, so the file people download is always the exact one the workflow built.
+The installer, blockmap and `latest.yml` must come from the same build, which is why the workflow
+uploads all three.
 
 ## Testing the updater
+
+Against GitHub:
 
 1. Install the previous release.
 2. Publish the new release as above.
 3. Start the old version. About six seconds after launch it checks for updates; **Settings → System →
    Check now** does the same immediately.
-4. **Install update** downloads the installer, verifies it and starts it (Windows asks for permission,
+4. **Download update** shows progress; **Restart to update** installs it (Windows asks for permission,
    since MeowPlayer installs into Program Files).
+
+Locally, without publishing:
+
+1. Build the current version with `npm run dist`, and a test version with
+   `npx electron-builder --win --publish never -c.directories.output=release-test -c.extraMetadata.version=<next>`.
+2. Copy `release\MeowPlayer-Setup-<current>.exe` to `%LOCALAPPDATA%\meowplayer-updater\installer.exe`
+   (the installer normally puts it there).
+3. Serve `release-test` and `release` from one local web server that supports HTTP range requests.
+4. Start `release\win-unpacked\MeowPlayer.exe` with `MEOWPLAYER_UPDATE_FEED=http://localhost:<port>/`
+   and check for updates. The server log shows how little of the installer the delta downloaded.
+5. Delete `%LOCALAPPDATA%\meowplayer-updater` afterwards.
 
 ## Installer artwork
 
