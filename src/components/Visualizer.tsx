@@ -200,16 +200,17 @@ function drawRibbon(ctx: CanvasRenderingContext2D, width: number, h: number, dpr
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineCap = 'round'
+  // A real glow (two blurred strokes a frame is cheap at the 60 fps cap).
   smoothPath(ctx, bottom)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'
   ctx.lineWidth = 1.4 * dpr
+  ctx.shadowColor = 'rgba(255, 255, 255, 0.5)'
+  ctx.shadowBlur = 14 * dpr
   ctx.stroke()
   smoothPath(ctx, top)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)'
-  ctx.lineWidth = 9 * dpr
-  ctx.stroke()
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
   ctx.lineWidth = 2.4 * dpr
+  ctx.shadowBlur = 22 * dpr
   ctx.stroke()
   ctx.restore()
 }

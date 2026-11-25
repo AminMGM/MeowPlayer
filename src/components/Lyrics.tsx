@@ -111,6 +111,7 @@ function SyncedLyrics({ lines, stage, className, trackId }: { lines: LyricsLine[
               index < active && 'past',
               !line.text && 'gap',
               rtl && 'rtl',
+              Math.abs(index - active) <= 2 && index !== active && `near-${Math.abs(index - active)}`,
             )}
             onClick={() => {
               manualUntil.current = 0

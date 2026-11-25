@@ -485,30 +485,35 @@
   cursor: pointer;
   transform-origin: left center;
   transition:
-    color 250ms var(--ease),
-    opacity 250ms var(--ease),
-    transform 350ms var(--ease-spring);
+    color 300ms var(--ease),
+    filter 300ms var(--ease),
+    opacity 300ms var(--ease),
+    transform 400ms var(--ease-spring);
 }
 
 .lyric-line.rtl {
   transform-origin: right center;
 }
 
-/*
- * Only the line being sung is bright. Every other line is clearly dimmed, so
- * there is never a second line that looks active. No blur: a blurred element
- * costs its own GPU texture, and a song has dozens of lines.
- */
+/* The 2.1 look: lines soften with distance from the one being sung. */
 .lyrics.synced .lyric-line {
-  opacity: 0.38;
+  filter: blur(1.4px);
+  opacity: 0.55;
 }
 
-.lyrics.synced .lyric-line.past {
-  opacity: 0.28;
+.lyrics.synced .lyric-line.near-1 {
+  filter: blur(0.4px);
+  opacity: 0.8;
+}
+
+.lyrics.synced .lyric-line.near-2 {
+  filter: blur(0.8px);
+  opacity: 0.7;
 }
 
 .lyrics.synced .lyric-line:hover {
-  opacity: 0.85;
+  filter: none;
+  opacity: 1;
   background: var(--hover);
 }
 
@@ -520,8 +525,9 @@
  */
 .lyrics.synced .lyric-line.active {
   --fill-dir: 90deg;
+  filter: none;
   opacity: 1;
-  transform: scale(1.03);
+  transform: scale(1.04);
   color: var(--text);
 }
 
@@ -533,7 +539,7 @@
     var(--fill-dir),
     var(--text) 0,
     var(--text) var(--progress, 0%),
-    color-mix(in oklab, var(--text) 50%, transparent) calc(var(--progress, 0%) + 6%)
+    color-mix(in oklab, var(--text) 45%, transparent) calc(var(--progress, 0%) + 8%)
   );
   -webkit-background-clip: text;
   background-clip: text;

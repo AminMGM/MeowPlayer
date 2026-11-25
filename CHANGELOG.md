@@ -2,6 +2,15 @@
 
 All notable changes to MeowPlayer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [2.2.6] - 2026-11-25
+
+### Fixed
+
+- The round handle on the seek and volume bars sits on top of the bar again instead of under it.
+- The Ribbon visualizer glows like it used to.
+- Lyrics look like they did in 2.1 again: lines soften with distance from the one being sung.
+- "Check now" says when it could not reach GitHub, instead of claiming MeowPlayer is up to date.
+
 ## [2.2.5] - 2026-11-25
 
 ### Fixed
