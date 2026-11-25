@@ -166,7 +166,8 @@ export async function check(force = false): Promise<UpdateInfo | null> {
     return current
   } catch (err) {
     console.warn('[update] check failed', err)
-    return null
+    // Never report "up to date" when GitHub could not be asked (offline, or a release still being built).
+    throw new Error('check failed', { cause: err })
   }
 }
 

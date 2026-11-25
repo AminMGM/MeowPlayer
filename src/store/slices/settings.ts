@@ -215,8 +215,8 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
       set({ update: info })
       if (info?.available) get().showToast(`MeowPlayer ${info.version} is available`, { kind: 'info' })
       else if (force) get().showToast('MeowPlayer is up to date')
-    } catch (err) {
-      if (force) get().showToast(err instanceof Error ? err.message : 'Could not check for updates', { kind: 'error' })
+    } catch {
+      if (force) get().showToast('Could not check for updates. Check your connection and try again in a minute.', { kind: 'error' })
     } finally {
       set({ checkingUpdate: false })
     }

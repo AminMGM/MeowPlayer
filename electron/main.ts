@@ -758,9 +758,14 @@ if (!app.requestSingleInstanceLock()) {
 
     // Quiet background check shortly after launch, respecting the user's choices.
     setTimeout(() => {
-      void updater.check().then((info) => {
-        if (info?.available) sendToRenderer('update:available', info)
-      })
+      updater
+        .check()
+        .then((info) => {
+          if (info?.available) sendToRenderer('update:available', info)
+        })
+        .catch(() => {
+          /* offline: try again next launch */
+        })
     }, 6000)
 
     app.on('activate', () => {
