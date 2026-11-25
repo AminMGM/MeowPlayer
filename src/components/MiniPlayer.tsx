@@ -19,6 +19,8 @@ const EMPTY: MiniState = {
   external: false,
   lyric: null,
   lyricsOn: true,
+  shuffle: false,
+  repeat: 'off',
 }
 
 /** The floating always-on-top mini player window. */
@@ -108,7 +110,7 @@ export function MiniWindow() {
 
         {lyric && (
           <div className="mini-lyric-row">
-            <span className="mini-lyric" title={lyric}>
+            <span className="mini-lyric" title={lyric} dir="auto">
               {lyric}
             </span>
           </div>
@@ -124,6 +126,16 @@ export function MiniWindow() {
           >
             <Icon name="lyrics" size={14} />
           </button>
+          <button
+            type="button"
+            className={cx('icon-btn tiny', state.shuffle && 'on')}
+            title={state.shuffle ? 'Shuffle on' : 'Shuffle off'}
+            aria-label="Shuffle"
+            aria-pressed={state.shuffle}
+            onClick={() => api.mini.command('shuffle')}
+          >
+            <Icon name="shuffle" size={14} />
+          </button>
           <button type="button" className="icon-btn" title="Previous" aria-label="Previous" onClick={() => api.mini.command('prev')}>
             <Icon name="prev" size={16} />
           </button>
@@ -138,6 +150,15 @@ export function MiniWindow() {
           </button>
           <button type="button" className="icon-btn" title="Next" aria-label="Next" onClick={() => api.mini.command('next')}>
             <Icon name="next" size={16} />
+          </button>
+          <button
+            type="button"
+            className={cx('icon-btn tiny', state.repeat !== 'off' && 'on')}
+            title={state.repeat === 'one' ? 'Repeat one' : state.repeat === 'all' ? 'Repeat all' : 'Repeat off'}
+            aria-label="Repeat"
+            onClick={() => api.mini.command('repeat')}
+          >
+            <Icon name={state.repeat === 'one' ? 'repeat1' : 'repeat'} size={14} />
           </button>
           {state.external ? (
             <button

@@ -25,17 +25,20 @@ export const createLyricsSlice: Slice<LyricsSlice> = (set, get) => ({
         artist: track.artist,
         album: track.album,
         duration: track.duration,
+        force,
       })
       if (get().lyrics.trackId !== track.id) return
       const synced = raw?.synced ? parseLrc(raw.synced) : []
       const plain = raw?.plain ?? null
+      const instrumental = Boolean(raw?.instrumental) && !synced.length && !plain
       set({
         lyrics: {
           trackId: track.id,
           loading: false,
           synced,
           plain,
-          error: synced.length || plain ? null : 'No lyrics found for this track',
+          instrumental,
+          error: synced.length || plain || instrumental ? null : 'No lyrics found for this track',
         },
       })
     } catch {
@@ -67,6 +70,17 @@ export const createLyricsSlice: Slice<LyricsSlice> = (set, get) => ({
       get().showToast('No tracks to download lyrics for', { kind: 'info' })
       return
     }
+
+    // Songs that already have lyrics saved (or that LRCLIB recently had nothing for) are skipped.
+    const saved = await api.lyrics.cached(targets.map(({ title, artist, album }) => ({ title, artist, album })))
+    const alreadySaved = saved.filter(Boolean).length
+    const missing = targets.filter((_, index) => !saved[index])
+    if (!missing.length) {
+      get().showToast(`Lyrics are already saved for all ${targets.length} songs`, { kind: 'info' })
+      return
+    }
+    targets.splice(0, targets.length, ...missing)
+    if (alreadySaved) get().showToast(`Skipping ${alreadySaved} songs that already have lyrics`, { kind: 'info' })
 
     set({ lyricsDownload: { running: true, done: 0, total: targets.length, failed: 0 } })
     let cursor = 0

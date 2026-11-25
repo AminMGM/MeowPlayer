@@ -303,6 +303,16 @@ export function parseLrc(raw: string): LyricsLine[] {
   return lines.filter((line, index) => line.text || (index > 0 && lines[index - 1].text))
 }
 
+const RTL_CHAR = /[֐-ࣿיִ-﷿ﹰ-﻿]/
+const LTR_CHAR = /[A-Za-zÀ-ɏЀ-ӿ]/
+
+/** True when text is written right to left (Persian, Arabic, Hebrew, Urdu…). */
+export function isRtl(text: string): boolean {
+  const rtl = text.match(new RegExp(RTL_CHAR, 'g'))?.length ?? 0
+  const ltr = text.match(new RegExp(LTR_CHAR, 'g'))?.length ?? 0
+  return rtl > 0 && rtl >= ltr
+}
+
 export function activeLyricIndex(lines: LyricsLine[], time: number): number {
   if (!lines.length) return -1
   let index = -1

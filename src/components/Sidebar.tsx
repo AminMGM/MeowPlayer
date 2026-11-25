@@ -86,7 +86,7 @@ export function Sidebar() {
     return map
   }, [playlists, tracks])
 
-  const item = (key: string, label: string, icon: React.ReactNode, onClick: () => void, count?: number) => (
+  const item = (key: string, label: string, icon: string | React.ReactNode, onClick: () => void, count?: number, size = 17) => (
     <button
       key={key}
       type="button"
@@ -96,7 +96,7 @@ export function Sidebar() {
       aria-current={activeKey === key ? 'page' : undefined}
       onClick={onClick}
     >
-      {icon}
+      {typeof icon === 'string' ? <Icon name={icon} size={size} filledAlt={activeKey === key} /> : icon}
       {!collapsed && <span className="nav-label">{label}</span>}
       {!collapsed && count !== undefined && count > 0 && <span className="nav-count">{count}</span>}
     </button>
@@ -109,16 +109,16 @@ export function Sidebar() {
 
         <div className="sidebar-section">
           {!collapsed && <p className="sidebar-heading">Library</p>}
-          {LIBRARY.map((nav) => item(nav.key, nav.label, <Icon name={nav.icon} size={17} />, () => s.setView(nav.view)))}
-          {item('favorites', 'Liked songs', <Icon name="heart" size={17} />, () => s.setView({ kind: 'favorites' }), favorites)}
+          {LIBRARY.map((nav) => item(nav.key, nav.label, nav.icon, () => s.setView(nav.view)))}
+          {item('favorites', 'Liked songs', 'heart', () => s.setView({ kind: 'favorites' }), favorites)}
         </div>
 
         <div className="sidebar-section">
           {!collapsed && <p className="sidebar-heading">Smart playlists</p>}
           {SMART.map((smart) =>
-            item(smart.key, smart.label, <Icon name={smart.icon} size={16} />, () => s.setView({ kind: 'smart', id: smart.id })),
+            item(smart.key, smart.label, smart.icon, () => s.setView({ kind: 'smart', id: smart.id }), undefined, 16),
           )}
-          {item('stats', 'Listening stats', <Icon name="chart" size={16} />, () => s.setView({ kind: 'stats' }))}
+          {item('stats', 'Listening stats', 'chart', () => s.setView({ kind: 'stats' }), undefined, 16)}
         </div>
 
         <div className="sidebar-section">

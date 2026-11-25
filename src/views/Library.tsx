@@ -4,6 +4,7 @@ import { EmptyState } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { MediaCard } from '../components/MediaCard'
 import { SongTable, type SortKey, type SortState } from '../components/SongTable'
+import { TypeSearchPill, useTypeToSearch } from '../components/TypeSearch'
 import { getStore, useStore } from '../store/useStore'
 import type { Track } from '../types'
 import {
@@ -57,12 +58,18 @@ const SORT_OPTIONS: { value: SortKey; label: string; desc: boolean }[] = [
   { value: 'plays', label: 'Most played', desc: true },
 ]
 
+const INDEX_BY = {
+  title: (track: Track) => track.title,
+  artist: (track: Track) => track.artist,
+  album: (track: Track) => track.album,
+}
+
 export function SongsView() {
   const tracks = useStore((state) => state.tracks)
   const stats = useStore((state) => state.stats)
   const hideDuplicates = useStore((state) => state.settings.hideDuplicates)
   const [sort, setSort] = useState<SortState>({ key: 'title', desc: false })
-  const [filter, setFilter] = useState('')
+  const [filter, setFilter] = useTypeToSearch()
   const s = getStore()
 
   const visible = useMemo(() => {
@@ -161,7 +168,9 @@ export function SongsView() {
         sort={sort}
         onSort={onSort}
         emptyLabel="No songs match that filter"
+        indexBy={sort.key === 'title' || sort.key === 'artist' || sort.key === 'album' ? INDEX_BY[sort.key] : undefined}
       />
+      <TypeSearchPill query={filter} count={visible.length} onClear={() => setFilter('')} />
     </div>
   )
 }
@@ -170,13 +179,19 @@ export function SongsView() {
 
 export function AlbumsView() {
   const tracks = useStore((state) => state.tracks)
-  const albums = useMemo(() => groupAlbums(tracks), [tracks])
+  const allAlbums = useMemo(() => groupAlbums(tracks), [tracks])
+  const [query, setQuery] = useTypeToSearch()
+  const albums = useMemo(
+    () => (query ? allAlbums.filter((album) => matches(query, album.album, album.albumArtist)) : allAlbums),
+    [allAlbums, query],
+  )
   const s = getStore()
 
   return (
     <div className="view">
-      <ViewHeader eyebrow="Library" title="Albums" sub={plural(albums.length, 'album')} />
-      {albums.length === 0 ? (
+      <ViewHeader eyebrow="Library" title="Albums" sub={plural(allAlbums.length, 'album')} />
+      <TypeSearchPill query={query} count={albums.length} onClear={() => setQuery('')} />
+      {allAlbums.length === 0 ? (
         <EmptyState title="No albums yet">Add a music folder and your albums appear here.</EmptyState>
       ) : (
         <div className="card-grid">
@@ -259,13 +274,19 @@ export function AlbumDetail({ id }: { id: string }) {
 
 export function ArtistsView() {
   const tracks = useStore((state) => state.tracks)
-  const artists = useMemo(() => groupArtists(tracks), [tracks])
+  const allArtists = useMemo(() => groupArtists(tracks), [tracks])
+  const [query, setQuery] = useTypeToSearch()
+  const artists = useMemo(
+    () => (query ? allArtists.filter((artist) => matches(query, artist.name)) : allArtists),
+    [allArtists, query],
+  )
   const s = getStore()
 
   return (
     <div className="view">
-      <ViewHeader eyebrow="Library" title="Artists" sub={plural(artists.length, 'artist')} />
-      {artists.length === 0 ? (
+      <ViewHeader eyebrow="Library" title="Artists" sub={plural(allArtists.length, 'artist')} />
+      <TypeSearchPill query={query} count={artists.length} onClear={() => setQuery('')} />
+      {allArtists.length === 0 ? (
         <EmptyState title="No artists yet">Add a music folder and your artists appear here.</EmptyState>
       ) : (
         <div className="card-grid artists">
@@ -365,13 +386,19 @@ export function ArtistDetail({ id }: { id: string }) {
 
 export function GenresView() {
   const tracks = useStore((state) => state.tracks)
-  const genres = useMemo(() => groupGenres(tracks), [tracks])
+  const allGenres = useMemo(() => groupGenres(tracks), [tracks])
+  const [query, setQuery] = useTypeToSearch()
+  const genres = useMemo(
+    () => (query ? allGenres.filter((genre) => matches(query, genre.name)) : allGenres),
+    [allGenres, query],
+  )
   const s = getStore()
 
   return (
     <div className="view">
-      <ViewHeader eyebrow="Library" title="Genres" sub={plural(genres.length, 'genre')} />
-      {genres.length === 0 ? (
+      <ViewHeader eyebrow="Library" title="Genres" sub={plural(allGenres.length, 'genre')} />
+      <TypeSearchPill query={query} count={genres.length} onClear={() => setQuery('')} />
+      {allGenres.length === 0 ? (
         <EmptyState title="No genres yet">Genre tags from your files show up here.</EmptyState>
       ) : (
         <div className="genre-grid">

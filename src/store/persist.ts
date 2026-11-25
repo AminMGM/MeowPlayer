@@ -16,6 +16,7 @@ export type PersistKey =
   | 'session'
   | 'tagOverrides'
   | 'listenLog'
+  | 'playLog'
 
 let getState: (() => AppState) | null = null
 const dirty = new Set<PersistKey>()

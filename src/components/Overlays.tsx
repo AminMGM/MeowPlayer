@@ -4,14 +4,18 @@ import { getStore, useStore } from '../store/useStore'
 import type { ContextMenuState, Track } from '../types'
 import { albumKey, cx, plural } from '../utils'
 import { Icon } from './Icons'
+import { MetaFixer } from './MetaFixer'
 import { PlaylistPicker } from './PlaylistPicker'
 import { Settings } from './Settings'
+import { SpotifyImport } from './SpotifyImport'
 
 export function Overlays() {
   return (
     <>
       <ContextMenu />
       <TagEditor />
+      <MetaFixer />
+      <SpotifyImport />
       <Settings />
       <CloseDialog />
       <Toasts />
@@ -153,6 +157,9 @@ function ContextMenuBody({ menu }: { menu: ContextMenuState }) {
             </button>
             <button type="button" className="context-item" role="menuitem" onClick={run(() => s.setTagEdit(track.id))}>
               <Icon name="edit" size={15} /> Edit details
+            </button>
+            <button type="button" className="context-item" role="menuitem" onClick={run(() => s.setMetaFix([track.id]))}>
+              <Icon name="wand" size={15} /> Fix song info
             </button>
             <button
               type="button"

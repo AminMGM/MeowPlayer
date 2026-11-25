@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
     pickImage: (): Promise<string | null> => ipcRenderer.invoke('library:pickImage'),
     onProgress: (cb: (value: { done: number; total: number }) => void): Unsubscribe => on('library:progress', cb),
     importM3u: (): Promise<{ name: string; paths: string[] } | null> => ipcRenderer.invoke('library:importM3u'),
+    pickPlaylistExports: (): Promise<{ name: string; text: string }[]> => ipcRenderer.invoke('library:pickPlaylistExports'),
     exportM3u: (name: string, entries: unknown[]): Promise<boolean> =>
       ipcRenderer.invoke('library:exportM3u', name, entries),
   },
@@ -47,8 +48,16 @@ contextBridge.exposeInMainWorld('api', {
     load: (): Promise<Record<string, unknown>> => ipcRenderer.invoke('store:load'),
     save: (patch: Record<string, unknown>): Promise<boolean> => ipcRenderer.invoke('store:save', patch),
   },
+  meta: {
+    lookup: (item: unknown, online: boolean): Promise<unknown> => ipcRenderer.invoke('meta:lookup', item, online),
+    apply: (file: string, changes: unknown, coverUrl?: string): Promise<unknown> =>
+      ipcRenderer.invoke('meta:apply', file, changes, coverUrl),
+  },
   lyrics: {
     get: (query: unknown): Promise<unknown> => ipcRenderer.invoke('lyrics:get', query),
+    cached: (queries: unknown[]): Promise<boolean[]> => ipcRenderer.invoke('lyrics:cached', queries),
+    stats: (): Promise<{ songs: number; bytes: number }> => ipcRenderer.invoke('lyrics:stats'),
+    clear: (): Promise<void> => ipcRenderer.invoke('lyrics:clear'),
   },
   files: {
     paths: (files: File[]): string[] =>

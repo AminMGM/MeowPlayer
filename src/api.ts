@@ -1,4 +1,4 @@
-import type { ScanResult, TagEdit, Track, UpdateInfo } from './types'
+import type { MetaChanges, MetaProposal, ScanResult, TagEdit, Track, UpdateInfo } from './types'
 
 export interface ScanProgress {
   done: number
@@ -8,6 +8,7 @@ export interface ScanProgress {
 export interface RawLyrics {
   synced: string | null
   plain: string | null
+  instrumental?: boolean
   source: string
 }
 
@@ -45,6 +46,8 @@ export interface AppApi {
     pickImage: () => Promise<string | null>
     onProgress: (cb: (value: ScanProgress) => void) => Unsubscribe
     importM3u: () => Promise<{ name: string; paths: string[] } | null>
+    /** CSV or text playlist exports the user picks, read as text. */
+    pickPlaylistExports: () => Promise<{ name: string; text: string }[]>
     exportM3u: (
       name: string,
       entries: { path: string; duration: number; title: string; artist: string }[],
@@ -54,8 +57,31 @@ export interface AppApi {
     load: () => Promise<Record<string, unknown>>
     save: (patch: Record<string, unknown>) => Promise<boolean>
   }
+  meta: {
+    /** Proposed fixes for one song; `online` also asks MusicBrainz. */
+    lookup: (
+      item: {
+        id: string
+        path: string
+        title: string
+        artist: string
+        album: string
+        albumArtist: string
+        year: number | null
+        trackNo: number | null
+        duration: number
+        hasCover: boolean
+      },
+      online: boolean,
+    ) => Promise<MetaProposal | null>
+    apply: (file: string, changes: MetaChanges, coverUrl?: string) => Promise<{ track?: Track; error?: string }>
+  }
   lyrics: {
-    get: (query: { title: string; artist: string; album?: string; duration?: number }) => Promise<RawLyrics | null>
+    get: (query: { title: string; artist: string; album?: string; duration?: number; force?: boolean }) => Promise<RawLyrics | null>
+    /** Which songs already have lyrics (or a recent "not found") saved. */
+    cached: (queries: { title: string; artist: string; album?: string }[]) => Promise<boolean[]>
+    stats: () => Promise<{ songs: number; bytes: number }>
+    clear: () => Promise<void>
   }
   files: {
     paths: (files: File[]) => string[]
@@ -131,10 +157,20 @@ const browserStub: AppApi = {
     pickImage: resolved<string | null>(null),
     onProgress: off,
     importM3u: resolved(null),
+    pickPlaylistExports: resolved<{ name: string; text: string }[]>([]),
     exportM3u: resolved(false),
   },
   store: { load: resolved<Record<string, unknown>>({}), save: resolved(true) },
-  lyrics: { get: resolved<RawLyrics | null>(null) },
+  meta: {
+    lookup: resolved<MetaProposal | null>(null),
+    apply: resolved({ error: 'Fixing song info needs the desktop app' }),
+  },
+  lyrics: {
+    get: resolved<RawLyrics | null>(null),
+    cached: async (queries) => queries.map(() => false),
+    stats: resolved({ songs: 0, bytes: 0 }),
+    clear: resolved(undefined),
+  },
   files: { paths: () => [] },
   ui: {
     setZoom: (factor) => {

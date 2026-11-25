@@ -14,6 +14,7 @@ export const createCollectionSlice: Slice<CollectionSlice> = (set, get) => ({
   stats: {},
   history: [],
   listenLog: {},
+  playLog: [],
 
   toggleLike: (id) => {
     const liked = get().favorites.includes(id)
@@ -117,10 +118,20 @@ export const createCollectionSlice: Slice<CollectionSlice> = (set, get) => ({
     const now = Date.now()
     const stats = { ...get().stats }
     const entry = stats[track.id] ?? { plays: 0, lastPlayed: 0 }
-    stats[track.id] = { plays: entry.plays + 1, lastPlayed: now }
+    stats[track.id] = { ...entry, plays: entry.plays + 1, lastPlayed: now }
     const history = [{ id: track.id, at: now }, ...get().history.filter((item) => item.id !== track.id)].slice(0, 500)
-    set({ stats, history })
-    persist('stats', 'history')
+    // Dated plays power the 7- and 30-day stats; about 20 000 plays is years of listening.
+    const playLog = [...get().playLog, { id: track.id, at: now }].slice(-20000)
+    set({ stats, history, playLog })
+    persist('stats', 'history', 'playLog')
+  },
+
+  recordSkip: (trackId) => {
+    const stats = { ...get().stats }
+    const entry = stats[trackId] ?? { plays: 0, lastPlayed: 0 }
+    stats[trackId] = { ...entry, skips: (entry.skips ?? 0) + 1 }
+    set({ stats })
+    persist('stats')
   },
 
   addListenTime: (seconds) => {

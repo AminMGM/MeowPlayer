@@ -434,6 +434,11 @@ class AudioEngine {
     return this.analyser
   }
 
+  /** The exact playback position, for things that animate every frame (lyrics). */
+  get currentTime(): number {
+    return this.current.el.currentTime
+  }
+
   get paused(): boolean {
     return this.current.el.paused
   }

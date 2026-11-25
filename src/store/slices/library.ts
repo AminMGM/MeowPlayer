@@ -47,7 +47,8 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
       const transient = new Set(get().transientIds)
       const library = get().tracks.filter((track) => !transient.has(track.id))
       const known: Record<string, number> = {}
-      for (const track of library) if (track.mtime) known[track.path] = track.mtime
+      // Tracks scanned before 2.2 have no thumbnail yet; leaving them out makes the scan re-read them.
+      for (const track of library) if (track.mtime && 'thumb' in track) known[track.path] = track.mtime
 
       const result = await api.library.scan(settings.folders, known)
       const kept = new Set(result.kept)
@@ -81,7 +82,9 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
         if (updated && updated !== playing) set({ playingTrack: updated })
       }
 
-      void api.library.pruneCovers(merged.map((track) => track.cover).filter((cover): cover is string => Boolean(cover)))
+      void api.library.pruneCovers(
+        merged.flatMap((track) => [track.cover, track.thumb]).filter((url): url is string => Boolean(url)),
+      )
 
       if (!opts.quiet) get().showToast(`Library updated: ${plural(merged.length, 'track')}`)
       else if (added || removed > 0) {
@@ -205,6 +208,32 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
     set({ transientIds: get().transientIds.filter((id) => !remove.has(id)) })
     persist('tracks', 'session')
     get().showToast(ids.length > 1 ? `Added ${ids.length} tracks to your library` : 'Added to your library')
+  },
+
+  applyMetaFixes: async (proposals, onProgress) => {
+    const byId = new Map(get().tracks.map((track) => [track.id, track]))
+    const updated = new Map<string, Track>()
+    let failed = 0
+    let done = 0
+    for (const proposal of proposals) {
+      const track = byId.get(proposal.id)
+      if (track) {
+        const result = await api.meta.apply(track.path, proposal.changes, proposal.coverUrl)
+        if (result.track) updated.set(track.id, { ...result.track, id: track.id, addedAt: track.addedAt })
+        else failed += 1
+      }
+      done += 1
+      onProgress?.(done)
+    }
+    if (updated.size) {
+      const playing = get().playingTrack
+      set({
+        tracks: get().tracks.map((item) => updated.get(item.id) ?? item),
+        playingTrack: playing ? (updated.get(playing.id) ?? playing) : playing,
+      })
+      persist('tracks')
+    }
+    return { fixed: updated.size, failed }
   },
 
   updateTrack: async (id, edit) => {

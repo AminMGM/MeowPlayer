@@ -2,6 +2,43 @@
 
 All notable changes to MeowPlayer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [2.2.4] - 2026-11-25
+
+### New
+
+- **Type to search.** On Songs, Albums, Artists, Genres and Liked songs, just start typing to filter the
+  page. Backspace edits, Esc clears. The first time, MeowPlayer asks whether to keep it; it can be turned
+  off in Settings → Library.
+- **Alphabet scroller** on Songs: an A–Z rail appears while you scroll. Click or drag along it to jump.
+- **Fix song info.** Finds better titles, artists, albums, years, track numbers and missing artwork from
+  file names and [MusicBrainz](https://musicbrainz.org), then lists every change with a tick box so you
+  apply only what you want. Settings → Library, or right-click a song.
+- **Import from Spotify.** Rebuild Spotify playlists from the songs in your library: export them as CSV
+  with Exportify (free, open source) and choose the files under Playlists → From Spotify. Songs you do
+  not have are listed.
+- **Listening stats for 7 days, 30 days and all time**, a **listening streak** (5 minutes a day keeps it
+  going) and a **Most skipped** list.
+- **New icons** drawn for MeowPlayer: rounder, filled when active, with small animations.
+- **Shuffle and repeat** in the mini player.
+- **Lyrics database** in Settings → Lyrics shows how many songs are saved and how much space they use,
+  with a button to remove it.
+
+### Changed
+
+- A song counts as played after 10 seconds of listening; skipping it before then counts as a skip.
+- *Download all* lyrics skips songs that already have lyrics, and remembers songs LRCLIB has nothing for
+  instead of asking again every time.
+
+### Fixed
+
+- Synced lyrics follow the music closely again, with exactly one line lit at a time.
+- Lyrics jump back to the top when a new song starts.
+- Persian, Arabic and Hebrew lyrics are right-aligned and fill from the right.
+- Instrumental songs show *Instrumental* instead of "no lyrics found".
+- Much lower memory use: lists use small artwork thumbnails, the visualizer draws at most 60 frames per
+  second and pauses when hidden, and MeowPlayer no longer starts the camera service while listing audio
+  devices. A 400-song library with large artwork went from about 1.3 GB to about 0.7–0.9 GB.
+
 ## [2.1.0] - 2026-11-21
 
 ### New

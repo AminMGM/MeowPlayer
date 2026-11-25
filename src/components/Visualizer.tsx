@@ -30,10 +30,13 @@ export function Visualizer({ height = 120, bars = 48, className }: VisualizerPro
     if (!canvas || !ctx) return
 
     let frame = 0
+    let lastDraw = 0
+    let visible = true
     let accent = currentAccent()
     let accentCheck = 0
     const data = new Uint8Array(1024)
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    // 1.5x is sharp enough for thin lines and keeps the canvas small.
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
     const smoothed = Array.from({ length: bars }, () => 0)
     let energy = 0
 
@@ -46,8 +49,32 @@ export function Visualizer({ height = 120, bars = 48, className }: VisualizerPro
     const observer = new ResizeObserver(resize)
     observer.observe(canvas)
 
+    // Only animate while the canvas is on screen and the window is visible.
+    const start = (): void => {
+      if (!frame && visible && !document.hidden) frame = requestAnimationFrame(draw)
+    }
+    const stop = (): void => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+    }
+    const seen = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting
+      if (visible) start()
+      else stop()
+    })
+    seen.observe(canvas)
+    const onVisibility = (): void => (document.hidden ? stop() : start())
+    document.addEventListener('visibilitychange', onVisibility)
+
+    let idleFrames = 0
     const draw = (now: number): void => {
-      frame = requestAnimationFrame(draw)
+      frame = 0
+      // At most 60 frames a second, even on 120-165 Hz screens.
+      if (now - lastDraw < 15.5) {
+        start()
+        return
+      }
+      lastDraw = now
       if (now - accentCheck > 500) {
         accent = currentAccent()
         accentCheck = now
@@ -72,6 +99,8 @@ export function Visualizer({ height = 120, bars = 48, className }: VisualizerPro
       } else {
         for (let i = 0; i < bars; i += 1) smoothed[i] *= 0.92
       }
+      // When paused, let the shape settle for a moment, then stop drawing entirely.
+      idleFrames = isPlaying ? 0 : idleFrames + 1
       const level = smoothed.reduce((sum, value) => sum + value, 0) / bars
       energy = energy * 0.9 + level * 0.1
       const t = now / 1000
@@ -80,12 +109,16 @@ export function Visualizer({ height = 120, bars = 48, className }: VisualizerPro
       else if (style === 'ribbon') drawRibbon(ctx, width, h, dpr, smoothed, t)
       else if (style === 'aurora') drawAurora(ctx, width, h, dpr, smoothed, accent, t)
       else drawFilament(ctx, width, h, dpr, smoothed, accent, t, energy)
+
+      if (idleFrames < 45) start()
     }
 
-    frame = requestAnimationFrame(draw)
+    start()
     return () => {
-      cancelAnimationFrame(frame)
+      stop()
       observer.disconnect()
+      seen.disconnect()
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [bars, enabled, isPlaying, style])
 
@@ -170,13 +203,13 @@ function drawRibbon(ctx: CanvasRenderingContext2D, width: number, h: number, dpr
   smoothPath(ctx, bottom)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'
   ctx.lineWidth = 1.4 * dpr
-  ctx.shadowColor = 'rgba(255, 255, 255, 0.5)'
-  ctx.shadowBlur = 14 * dpr
   ctx.stroke()
   smoothPath(ctx, top)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)'
+  ctx.lineWidth = 9 * dpr
+  ctx.stroke()
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
   ctx.lineWidth = 2.4 * dpr
-  ctx.shadowBlur = 22 * dpr
   ctx.stroke()
   ctx.restore()
 }
@@ -194,8 +227,8 @@ function drawAurora(
   t: number,
 ): void {
   const centre = h * 0.5
-  const samples = 100
-  const layers = 18
+  const samples = 72
+  const layers = 12
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineCap = 'round'
@@ -220,10 +253,11 @@ function drawAurora(
     core.push({ x: u * width, y: centre + Math.sin(u * Math.PI * 4.2 + t * 0.9) * amp })
   }
   smoothPath(ctx, core)
+  ctx.strokeStyle = hexToRgba(accent, 0.25)
+  ctx.lineWidth = 10 * dpr
+  ctx.stroke()
   ctx.strokeStyle = 'rgba(245, 248, 255, 0.9)'
   ctx.lineWidth = 1.8 * dpr
-  ctx.shadowColor = hexToRgba(accent, 0.9)
-  ctx.shadowBlur = 24 * dpr
   ctx.stroke()
   ctx.restore()
 }
@@ -246,8 +280,8 @@ function drawFilament(
   energy: number,
 ): void {
   const centre = h * 0.5
-  const samples = 140
-  const strands = 28
+  const samples = 90
+  const strands = 18
   const lift = 0.02 + energy * 0.25
 
   ctx.save()
@@ -277,13 +311,13 @@ function drawFilament(
     ctx.stroke()
 
     // A white core on the middle strands, with glow, for the bright crest.
-    if (Math.abs(twist) < 0.12) {
+    if (Math.abs(twist) < 0.07) {
+      ctx.strokeStyle = hexToRgba(accent, 0.22)
+      ctx.lineWidth = 8 * dpr
+      ctx.stroke()
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
       ctx.lineWidth = 1.3 * dpr
-      ctx.shadowColor = hexToRgba(accent, 0.95)
-      ctx.shadowBlur = 18 * dpr
       ctx.stroke()
-      ctx.shadowBlur = 0
     }
   }
 

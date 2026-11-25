@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { engine } from '../audio/engine'
 import type { Track } from '../types'
 import { bindPersistence } from './persist'
+import { playCounter } from './playCounter'
 import { createCollectionSlice } from './slices/collection'
 import { createLibrarySlice } from './slices/library'
 import { createLyricsSlice } from './slices/lyrics'
@@ -39,6 +40,10 @@ engine.callbacks = {
     const delta = time - lastTime
     lastTime = time
     if (state.isPlaying && delta > 0 && delta < 1.5) {
+      // A track counts as played once it has really been listened to for 10 seconds.
+      if (state.playingTrack && playCounter.trackId === state.playingTrack.id && playCounter.listen(delta)) {
+        state.recordPlay(state.playingTrack)
+      }
       pendingListen += delta / Math.max(0.5, state.rate)
       if (pendingListen >= 15) {
         state.addListenTime(pendingListen)
@@ -48,7 +53,12 @@ engine.callbacks = {
     useStore.setState(state.duration === duration ? { time } : { time, duration })
   },
   duration: (duration) => useStore.setState({ duration }),
-  ended: () => useStore.getState().next(true),
+  ended: () => {
+    // Tracks shorter than 10 seconds count once they finish.
+    const state = useStore.getState()
+    if (state.playingTrack && playCounter.ended()) state.recordPlay(state.playingTrack)
+    state.next(true)
+  },
   transition: () => useStore.getState().next(true),
   preload: () => useStore.getState().preloadNext(),
   play: () => useStore.setState({ isPlaying: true }),

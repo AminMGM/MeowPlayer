@@ -44,11 +44,16 @@ and listening stats, all in a calm glass interface that sits on top of your desk
 - **Albums, artists, genres, folders and playlists**, with sortable song lists that stay fast in
   libraries with tens of thousands of tracks.
 - **Smart playlists** that fill themselves: *Recently added*, *Most played* and *Recently played*.
-- **Listening stats** with your listening time, the last 30 days and your top artists, albums and genres.
-  Counted on your PC only.
+- **Listening stats** for the last 7 days, 30 days or all time, a daily **listening streak**, and your
+  top songs, artists, albums and genres. Counted on your PC only.
+- **Type to search** on any list page, and an **A–Z scroller** for long song lists.
+- **Fix song info**: better titles, artists, albums, years and missing artwork from file names and
+  MusicBrainz, shown as a list of changes you tick before anything is written.
 - **Edit track details** and the changes are written into the file, so every player sees them.
 - **Watches your folders** and picks up new, changed or deleted files on its own.
 - **Drag and drop** files or folders to play them right away, and import or export `.m3u8` playlists.
+- **Import Spotify playlists** from a CSV export (for example from Exportify); they are rebuilt from the
+  songs in your library.
 
 ### On your desktop
 
@@ -118,10 +123,12 @@ To make MeowPlayer your default player, open **Settings → System → Default m
 | <kbd>Ctrl</kbd> + <kbd>F</kbd> | Search |
 | <kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd> | Back or forward (mouse side buttons work too) |
 | <kbd>Enter</kbd> | Play the selected song |
-| <kbd>Esc</kbd> | Close menus and dialogs |
+| <kbd>Esc</kbd> | Close menus and dialogs, or clear a type-to-search |
 
 In song lists, click to select, <kbd>Ctrl</kbd>/<kbd>Shift</kbd>-click to select several, double-click or
-press <kbd>Enter</kbd> to play, and right-click for more.
+press <kbd>Enter</kbd> to play, and right-click for more. On list pages, typing letters filters the page
+(so <kbd>M</kbd> <kbd>S</kbd> <kbd>R</kbd> <kbd>L</kbd> work as shortcuts on the other pages, or everywhere
+when type to search is off).
 
 ## Privacy
 
@@ -129,6 +136,8 @@ MeowPlayer works offline and has no accounts, analytics or telemetry. It only go
 
 - look up lyrics on [LRCLIB](https://lrclib.net) (sending the title, artist, album and length of the
   song), which you can turn off in **Settings → Lyrics**;
+- look up song details on [MusicBrainz](https://musicbrainz.org) and artwork on the Cover Art Archive,
+  only when you run **Fix song info** with the lookup ticked (sending the title and artist);
 - check GitHub for a newer version, which you can turn off in **Settings → System**.
 
 Your library, playlists and stats are stored in `%APPDATA%\MeowPlayer`.

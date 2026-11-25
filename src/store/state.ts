@@ -5,6 +5,8 @@ import type {
   DockTab,
   HistoryEntry,
   LyricsState,
+  MetaProposal,
+  PlayEvent,
   Playlist,
   RepeatMode,
   Settings,
@@ -32,6 +34,9 @@ export interface UiSlice {
   contextMenu: ContextMenuState | null
   toasts: Toast[]
   tagEditId: string | null
+  /** "Fix song info" dialog: the songs to check, 'all' for the library, or null when closed. */
+  metaFix: string[] | 'all' | null
+  spotifyImportOpen: boolean
   miniVisible: boolean
 
   setView: (view: View, source?: HTMLElement | null) => void
@@ -46,6 +51,8 @@ export interface UiSlice {
   showToast: (message: string, opts?: { kind?: ToastKind; action?: Toast['action']; duration?: number }) => void
   dismissToast: (id: number) => void
   setTagEdit: (id: string | null) => void
+  setMetaFix: (scope: string[] | 'all' | null) => void
+  setSpotifyImportOpen: (open: boolean) => void
 }
 
 export interface LibrarySlice {
@@ -67,6 +74,8 @@ export interface LibrarySlice {
   ingestPaths: (paths: string[]) => Promise<void>
   openFiles: (paths: string[]) => Promise<void>
   addToLibrary: (ids: string[]) => void
+  /** Writes accepted "Fix song info" proposals into the files. */
+  applyMetaFixes: (proposals: MetaProposal[], onProgress?: (done: number) => void) => Promise<{ fixed: number; failed: number }>
   updateTrack: (id: string, edit: TagEdit) => Promise<void>
   watchLibrary: () => void
 }
@@ -122,6 +131,8 @@ export interface CollectionSlice {
   history: HistoryEntry[]
   /** Seconds listened per day, keyed "YYYY-MM-DD". */
   listenLog: Record<string, number>
+  /** Every counted play with its time, newest last (capped). */
+  playLog: PlayEvent[]
 
   toggleLike: (id: string) => void
   setLiked: (ids: string[], liked: boolean) => void
@@ -133,6 +144,7 @@ export interface CollectionSlice {
   removeFromPlaylist: (playlistId: string, index: number) => void
   reorderPlaylist: (playlistId: string, from: number, to: number) => void
   recordPlay: (track: Track) => void
+  recordSkip: (trackId: string) => void
   addListenTime: (seconds: number) => void
 }
 

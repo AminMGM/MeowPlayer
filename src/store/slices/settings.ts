@@ -1,6 +1,6 @@
 import { api } from '../../api'
 import { EQ_PRESETS, engine } from '../../audio/engine'
-import type { HistoryEntry, Playlist, SessionState, Settings, StatsEntry, TagEdit, Track } from '../../types'
+import type { HistoryEntry, PlayEvent, Playlist, SessionState, Settings, StatsEntry, TagEdit, Track } from '../../types'
 import { DEFAULT_SETTINGS, MACHINE_SPECIFIC, sanitizeSettings } from '../defaults'
 import { persist } from '../persist'
 import type { SettingsSlice, Slice } from '../state'
@@ -69,6 +69,12 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
       stats: isObject(raw.stats) ? (raw.stats as Record<string, StatsEntry>) : {},
       history: Array.isArray(raw.history) ? (raw.history as HistoryEntry[]) : [],
       listenLog: isObject(raw.listenLog) ? (raw.listenLog as Record<string, number>) : {},
+      // Before 2.2.4 there was no play log: start it from the recent history so the 7- and 30-day views are not empty.
+      playLog: Array.isArray(raw.playLog)
+        ? (raw.playLog as PlayEvent[])
+        : Array.isArray(raw.history)
+          ? (raw.history as HistoryEntry[]).map(({ id, at }) => ({ id, at })).sort((a, b) => a.at - b.at)
+          : [],
       settings,
       volume: settings.volume,
       muted: settings.muted,
@@ -91,7 +97,8 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
     engine.transitionLead = settings.crossfade
     if (settings.sinkId) void engine.setSink(settings.sinkId)
 
-    void get().refreshDevices()
+    // The device list is fetched when the output picker opens: enumerating
+    // devices at startup also wakes Chromium's camera service (about 120 MB).
     api.library.onProgress((progress) => set({ scanProgress: progress }))
     api.library.onChanged(() => void get().rescan({ quiet: true }))
     void api.ui.version().then((version) => set({ version })).catch(() => undefined)

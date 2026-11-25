@@ -14,6 +14,8 @@ export interface Track {
   trackNo: number | null
   discNo: number | null
   cover: string | null
+  /** 96 px version of the cover for lists (2.2+). */
+  thumb?: string | null
   size: number
   /** File modification time in ms, used to skip unchanged files on a rescan. */
   mtime?: number
@@ -33,6 +35,23 @@ export interface TagEdit {
   year?: number | null
 }
 
+/** Proposed tag fixes for one song (see "Fix song info"). */
+export interface MetaChanges {
+  title?: string
+  artist?: string
+  album?: string
+  albumArtist?: string
+  year?: number
+  trackNo?: number
+}
+
+export interface MetaProposal {
+  id: string
+  changes: MetaChanges
+  coverUrl?: string
+  source: string
+}
+
 export interface ScanResult {
   tracks: Track[]
   kept: string[]
@@ -50,6 +69,14 @@ export interface Playlist {
 export interface StatsEntry {
   plays: number
   lastPlayed: number
+  /** Times the track was left before it counted as played (under 10 seconds). */
+  skips?: number
+}
+
+/** One counted play, for listening stats over a period. */
+export interface PlayEvent {
+  id: string
+  at: number
 }
 
 export interface HistoryEntry {
@@ -105,6 +132,9 @@ export interface Settings {
   collapsedSidebar: boolean
   /** Rescan automatically when files change in a library folder. */
   watchFolders: boolean
+  /** Typing on list pages filters them. */
+  typeToSearch: boolean
+  typeToSearchIntroSeen: boolean
   closeBehavior: CloseBehavior
   /** First launch and previous launch, used by the Home greeting. */
   firstOpenedAt: number | null
@@ -150,6 +180,8 @@ export interface LyricsState {
   loading: boolean
   synced: LyricsLine[]
   plain: string | null
+  /** The track has no vocals. */
+  instrumental?: boolean
   error: string | null
 }
 
@@ -204,6 +236,8 @@ export interface MiniState {
   external: boolean
   lyric: string | null
   lyricsOn: boolean
+  shuffle: boolean
+  repeat: RepeatMode
 }
 
 export type UpdateStatus = 'available' | 'downloading' | 'downloaded' | 'error'

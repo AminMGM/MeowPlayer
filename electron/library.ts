@@ -1,10 +1,10 @@
-import { app, dialog, BrowserWindow } from 'electron'
+import { app, dialog, nativeImage, BrowserWindow } from 'electron'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parseFile } from 'music-metadata'
-import { File as TagFile } from 'node-taglib-sharp'
+import { ByteVector, File as TagFile, Picture, PictureType } from 'node-taglib-sharp'
 import { grantDirectory, grantFile } from './media.js'
 
 const AUDIO_EXT = new Set([
@@ -29,6 +29,8 @@ export interface Track {
   trackNo: number | null
   discNo: number | null
   cover: string | null
+  /** A 96 px version of the cover for lists, so rows never decode full-size art. */
+  thumb: string | null
   size: number
   /** File modification time, used to skip unchanged files on a rescan. */
   mtime: number
@@ -45,6 +47,9 @@ export interface TagEdit {
   albumArtist?: string
   genre?: string
   year?: number | null
+  trackNo?: number | null
+  /** A JPEG to embed as the front cover. */
+  cover?: Buffer
 }
 
 export function toMediaUrl(filePath: string): string {
@@ -116,24 +121,60 @@ async function findFolderArt(dir: string): Promise<string | null> {
  * Embedded artwork is cached once per distinct image (keyed by its bytes), so
  * untagged tracks that happen to share "Unknown Album" no longer share a cover.
  */
+interface Artwork {
+  cover: string | null
+  thumb: string | null
+}
+
+const NO_ART: Artwork = { cover: null, thumb: null }
+const COVER_SIZE = 512
+const THUMB_SIZE = 96
+/** Artwork already stored during this scan, keyed by content hash. */
+const artworkCache = new Map<string, Promise<Artwork>>()
+
+function fit(image: Electron.NativeImage, max: number): Electron.NativeImage {
+  const { width, height } = image.getSize()
+  if (width <= max && height <= max) return image
+  return width >= height
+    ? image.resize({ width: max, quality: 'good' })
+    : image.resize({ height: max, quality: 'good' })
+}
+
+/**
+ * Stores artwork as a 512 px cover and a 96 px thumbnail. Real rips often
+ * embed 2000-3000 px art; decoding that for every 38 px list row is what made
+ * the interface use gigabytes of memory.
+ */
+function storeArtwork(key: string, load: () => Electron.NativeImage): Promise<Artwork> {
+  const cached = artworkCache.get(key)
+  if (cached) return cached
+  const job = (async (): Promise<Artwork> => {
+    const coverFile = path.join(coversDir(), `${key}.jpg`)
+    const thumbFile = path.join(coversDir(), `${key}-t.jpg`)
+    if (!(await exists(coverFile)) || !(await exists(thumbFile))) {
+      const image = load()
+      if (image.isEmpty()) return NO_ART
+      await fsp.writeFile(coverFile, fit(image, COVER_SIZE).toJPEG(88))
+      await fsp.writeFile(thumbFile, fit(image, THUMB_SIZE).toJPEG(82))
+    }
+    return { cover: toMediaUrl(coverFile), thumb: toMediaUrl(thumbFile) }
+  })().catch(() => NO_ART)
+  artworkCache.set(key, job)
+  return job
+}
+
 async function resolveCover(
   albumDir: string,
   picture: { data: Uint8Array; format: string } | undefined,
-): Promise<string | null> {
+): Promise<Artwork> {
   if (picture?.data && picture.data.length > 0) {
-    const ext = picture.format.includes('png') ? '.png' : picture.format.includes('webp') ? '.webp' : '.jpg'
-    const target = path.join(coversDir(), hash(picture.data, 'md5') + ext)
-    try {
-      if (!(await exists(target))) await fsp.writeFile(target, Buffer.from(picture.data))
-      return toMediaUrl(target)
-    } catch {
-      /* fall back to folder art */
-    }
+    const art = await storeArtwork(hash(picture.data, 'md5'), () => nativeImage.createFromBuffer(Buffer.from(picture.data)))
+    if (art.cover) return art
   }
-  const art = await findFolderArt(albumDir)
-  if (!art) return null
-  grantFile(art)
-  return toMediaUrl(art)
+  const folderArt = await findFolderArt(albumDir)
+  if (!folderArt) return NO_ART
+  const stat = await fsp.stat(folderArt).catch(() => null)
+  return storeArtwork(hash(`${folderArt}|${stat?.mtimeMs ?? 0}`, 'md5'), () => nativeImage.createFromPath(folderArt))
 }
 
 const gainOf = (value: { dB?: number } | undefined): number | null =>
@@ -173,7 +214,7 @@ export async function readTrack(filePath: string): Promise<Track | null> {
       sampleRate: 0,
       trackNo: null,
       discNo: null,
-      cover: await resolveCover(dir, undefined),
+      ...(await resolveCover(dir, undefined)),
       trackGain: null,
       albumGain: null,
     }
@@ -194,7 +235,7 @@ export async function readTrack(filePath: string): Promise<Track | null> {
     sampleRate: md.format.sampleRate ?? 0,
     trackNo: common.track?.no ?? null,
     discNo: common.disk?.no ?? null,
-    cover: await resolveCover(dir, common.picture?.[0]),
+    ...(await resolveCover(dir, common.picture?.[0])),
     trackGain: gainOf(common.replaygain_track_gain),
     albumGain: gainOf(common.replaygain_album_gain),
   }
@@ -245,6 +286,7 @@ export function scanFolders(
   scanInFlight = (async () => {
     const files = await collectFiles(folders)
     folderArtCache.clear()
+    artworkCache.clear()
     const total = files.length
     let done = 0
     const kept: string[] = []
@@ -322,6 +364,11 @@ export async function writeTags(filePath: string, edit: TagEdit): Promise<{ trac
     if (edit.album !== undefined) tag.album = edit.album
     if (edit.genre !== undefined) tag.genres = edit.genre ? [edit.genre] : []
     if (edit.year !== undefined) tag.year = edit.year && edit.year > 0 ? edit.year : 0
+    if (edit.trackNo !== undefined) tag.track = edit.trackNo && edit.trackNo > 0 ? edit.trackNo : 0
+    if (edit.cover) {
+      const picture = Picture.fromFullData(ByteVector.fromByteArray(edit.cover), PictureType.FrontCover, 'image/jpeg', '')
+      tag.pictures = [picture]
+    }
     file.save()
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'This file could not be tagged' }
@@ -387,6 +434,28 @@ export async function pickFolders(win: BrowserWindow | null): Promise<string[]> 
   }
   const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
   return result.canceled ? [] : result.filePaths
+}
+
+/** Playlist exports (CSV or text) picked by the user, read as text. Used by the Spotify import. */
+export async function pickPlaylistExports(win: BrowserWindow | null): Promise<{ name: string; text: string }[]> {
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose playlist exports',
+    filters: [{ name: 'Playlist exports', extensions: ['csv', 'txt'] }],
+    properties: ['openFile', 'multiSelections'],
+  }
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+  if (result.canceled) return []
+  const out: { name: string; text: string }[] = []
+  for (const file of result.filePaths.slice(0, 50)) {
+    try {
+      const stat = await fsp.stat(file)
+      if (stat.size > 5 * 1024 * 1024) continue
+      out.push({ name: path.basename(file, path.extname(file)).replace(/[_]+/g, ' ').trim(), text: await fsp.readFile(file, 'utf8') })
+    } catch {
+      /* skip unreadable files */
+    }
+  }
+  return out
 }
 
 export async function importM3u(win: BrowserWindow | null): Promise<{ name: string; paths: string[] } | null> {

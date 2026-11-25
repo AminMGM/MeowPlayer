@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { api } from '../api'
 import { useClock } from '../hooks'
+import { computeStreak, listenedIn, playsIn, STREAK_MINUTES, type StatsRange } from '../stats'
 import { Cover } from '../components/Cover'
 import { EmptyState } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { MediaCard } from '../components/MediaCard'
+import { TypeSearchPill, useTypeToSearch } from '../components/TypeSearch'
 import { SongTable } from '../components/SongTable'
 import { getStore, useStore } from '../store/useStore'
 import type { SmartList, Track } from '../types'
@@ -35,9 +37,14 @@ export function PlaylistsView() {
         title="Playlists"
         sub={plural(playlists.length, 'playlist')}
         actions={
-          <button type="button" className="btn ghost" onClick={() => void s.importPlaylistFile()}>
-            <Icon name="download" size={15} /> Import .m3u
-          </button>
+          <>
+            <button type="button" className="btn ghost" onClick={() => s.setSpotifyImportOpen(true)}>
+              <Icon name="link" size={15} /> From Spotify
+            </button>
+            <button type="button" className="btn ghost" onClick={() => void s.importPlaylistFile()}>
+              <Icon name="download" size={15} /> Import .m3u
+            </button>
+          </>
         }
       />
 
@@ -235,13 +242,19 @@ export function FavoritesView() {
   const favorites = useStore((state) => state.favorites)
   const tracks = useStore((state) => state.tracks)
   const s = getStore()
-  const liked = useMemo(() => {
+  const [query, setQuery] = useTypeToSearch()
+  const allLiked = useMemo(() => {
     const byId = new Map(tracks.map((track) => [track.id, track]))
     return [...favorites]
       .reverse()
       .map((id) => byId.get(id))
       .filter((track): track is Track => Boolean(track))
   }, [favorites, tracks])
+  const liked = useMemo(
+    () =>
+      query ? allLiked.filter((track) => matches(query, track.title, track.artist, track.album, track.genre)) : allLiked,
+    [allLiked, query],
+  )
   const ids = liked.map((track) => track.id)
 
   return (
@@ -252,10 +265,11 @@ export function FavoritesView() {
         sub={`${plural(liked.length, 'song')} · ${formatTotalDuration(total(liked))}`}
         actions={<PlayButtons ids={ids} />}
       />
-      {liked.length === 0 ? (
+      <TypeSearchPill query={query} count={liked.length} onClear={() => setQuery('')} />
+      {allLiked.length === 0 ? (
         <EmptyState title="No liked songs yet">Tap the heart on any song (or press L while it plays) to keep it here.</EmptyState>
       ) : (
-        <SongTable tracks={liked} onPlay={(index) => s.playTracks(ids, index)} />
+        <SongTable tracks={liked} onPlay={(index) => s.playTracks(ids, index)} emptyLabel="No liked songs match" />
       )}
     </div>
   )
@@ -359,61 +373,137 @@ const formatListen = (seconds: number): string => {
   return `${minutes} min`
 }
 
-function DailyChart({ log }: { log: Record<string, number> }) {
+interface ChartBar {
+  key: string
+  label: string
+  seconds: number
+}
+
+/** The last 12 months as listening totals, for the all-time chart. */
+function lastMonths(now: number, log: Record<string, number>): ChartBar[] {
+  const months: ChartBar[] = []
+  for (let i = 11; i >= 0; i -= 1) {
+    const date = new Date(now)
+    date.setDate(1)
+    date.setMonth(date.getMonth() - i)
+    const prefix = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const seconds = Object.entries(log)
+      .filter(([key]) => key.startsWith(prefix))
+      .reduce((sum, [, value]) => sum + value, 0)
+    months.push({ key: prefix, label: date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }), seconds })
+  }
+  return months
+}
+
+const RANGES: { id: StatsRange; label: string }[] = [
+  { id: '7d', label: '7 days' },
+  { id: '30d', label: '30 days' },
+  { id: 'all', label: 'All time' },
+]
+
+function ListeningChart({ log, range }: { log: Record<string, number>; range: StatsRange }) {
   const [hover, setHover] = useState<number | null>(null)
   const today = useClock(60 * 60_000)
-  const days = useMemo(() => lastDays(today, 30, log), [today, log])
+  const bars = useMemo(
+    () => (range === 'all' ? lastMonths(today, log) : lastDays(today, range === '7d' ? 7 : 30, log)),
+    [today, log, range],
+  )
 
-  const max = Math.max(60 * 30, ...days.map((day) => day.seconds))
-  const gridMinutes = max > 3 * 3600 ? 60 : max > 3600 ? 30 : 15
+  const floor = range === 'all' ? 60 * 60 * 5 : 60 * 30
+  const max = Math.max(floor, ...bars.map((bar) => bar.seconds))
+  const step = max > 60 * 3600 ? 3600 * 20 : max > 10 * 3600 ? 3600 * 5 : max > 3 * 3600 ? 3600 : max > 3600 ? 1800 : 900
   const lines: number[] = []
-  for (let m = gridMinutes; m * 60 <= max; m += gridMinutes) lines.push(m)
+  for (let value = step; value <= max; value += step) lines.push(value)
+  const title =
+    range === 'all' ? 'Hours listened per month' : `Minutes listened, last ${range === '7d' ? '7' : '30'} days`
 
   return (
     <figure className="chart">
-      <figcaption className="chart-title">Minutes listened, last 30 days</figcaption>
+      <figcaption className="chart-title">{title}</figcaption>
       <div className="chart-plot" onPointerLeave={() => setHover(null)}>
-        {lines.map((minutes) => (
-          <div key={minutes} className="chart-grid" style={{ bottom: `${((minutes * 60) / max) * 100}%` }}>
-            <span>{minutes >= 60 ? `${minutes / 60} h` : `${minutes} m`}</span>
+        {lines.map((value) => (
+          <div key={value} className="chart-grid" style={{ bottom: `${(value / max) * 100}%` }}>
+            <span>{value >= 3600 ? `${value / 3600} h` : `${value / 60} m`}</span>
           </div>
         ))}
-        <div className="chart-bars">
-          {days.map((day, index) => (
+        <div className={cx('chart-bars', bars.length <= 12 && 'wide')}>
+          {bars.map((bar, index) => (
             <div
-              key={day.key}
+              key={bar.key}
               className={cx('chart-col', hover === index && 'hover')}
               onPointerEnter={() => setHover(index)}
-              aria-label={`${day.label}: ${formatListen(day.seconds)}`}
+              aria-label={`${bar.label}: ${formatListen(bar.seconds)}`}
               role="img"
             >
-              <span className="chart-bar" style={{ height: `${Math.max(day.seconds ? 2 : 0, (day.seconds / max) * 100)}%` }} />
+              <span className="chart-bar" style={{ height: `${Math.max(bar.seconds ? 2 : 0, (bar.seconds / max) * 100)}%` }} />
             </div>
           ))}
         </div>
-        {hover !== null && (
-          <div className="chart-tip" style={{ left: `${((hover + 0.5) / days.length) * 100}%` }}>
-            <strong>{formatListen(days[hover].seconds)}</strong>
-            <span>{days[hover].label}</span>
+        {hover !== null && bars[hover] && (
+          <div className="chart-tip" style={{ left: `${((hover + 0.5) / bars.length) * 100}%` }}>
+            <strong>{formatListen(bars[hover].seconds)}</strong>
+            <span>{bars[hover].label}</span>
           </div>
         )}
       </div>
       <div className="chart-axis">
-        <span>{days[0].label}</span>
-        <span>Today</span>
+        <span>{bars[0].label}</span>
+        <span>{range === 'all' ? 'This month' : 'Today'}</span>
       </div>
       <table className="sr-only">
-        <caption>Minutes listened per day</caption>
+        <caption>{title}</caption>
         <tbody>
-          {days.map((day) => (
-            <tr key={day.key}>
-              <th scope="row">{day.label}</th>
-              <td>{Math.round(day.seconds / 60)}</td>
+          {bars.map((bar) => (
+            <tr key={bar.key}>
+              <th scope="row">{bar.label}</th>
+              <td>{Math.round(bar.seconds / 60)} minutes</td>
             </tr>
           ))}
         </tbody>
       </table>
     </figure>
+  )
+}
+
+/** A Duolingo-style streak: days in a row with at least a few minutes of music. */
+function StreakCard({ log }: { log: Record<string, number> }) {
+  const today = useClock(60_000)
+  const streak = useMemo(() => computeStreak(log, today), [log, today])
+  const message = streak.today
+    ? streak.current > 1
+      ? 'Streak extended today. See you tomorrow!'
+      : 'Day one done. Come back tomorrow to start a streak.'
+    : streak.current > 0
+      ? `Listen for ${STREAK_MINUTES} minutes today to keep your streak.`
+      : `Listen for ${STREAK_MINUTES} minutes today to start a streak.`
+
+  return (
+    <section className={cx('streak-card', streak.today && 'lit', !streak.today && streak.current > 0 && 'at-risk')}>
+      <div className="streak-flame" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="44" height="44">
+          <path
+            className="flame-outer"
+            d="M12 2.5c.6 3.2 3.4 4.6 4.7 7.4 1.6 3.5-.2 9.6-4.7 9.6S5.6 15.9 6.9 12.5c.6-1.6 1.8-2.4 2.3-4 .4 1.4 1.3 2.2 2.1 2.6-.4-2.9.1-6.1.7-8.6z"
+          />
+          <path className="flame-inner" d="M12 12.2c.4 1.6 1.9 2.3 1.9 4 0 1.4-.9 2.5-1.9 2.5s-2-1-2-2.4c0-1.5 1.5-2.3 2-4.1z" />
+        </svg>
+      </div>
+      <div className="streak-text">
+        <span className="streak-count">
+          {streak.current} day{streak.current === 1 ? '' : 's'}
+        </span>
+        <span className="streak-label">listening streak · best {streak.best}</span>
+        <span className="streak-message">{message}</span>
+      </div>
+      <ol className="streak-week" aria-label="The last seven days">
+        {streak.week.map((day) => (
+          <li key={day.key} className={cx(day.done && 'done', day.isToday && 'today')} title={day.key}>
+            <span className="streak-dot" />
+            <span className="streak-day">{day.label}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 
@@ -454,50 +544,61 @@ export function StatsView() {
   const tracks = useStore((state) => state.tracks)
   const stats = useStore((state) => state.stats)
   const listenLog = useStore((state) => state.listenLog)
+  const playLog = useStore((state) => state.playLog)
+  const [range, setRange] = useState<StatsRange>('30d')
   const s = getStore()
   const today = useClock(60 * 60_000)
 
   const summary = useMemo(() => {
     const byId = new Map(tracks.map((track) => [track.id, track]))
+    // All time uses the running totals (which include plays from before 2.2);
+    // 7 and 30 days come from the dated play log.
+    const perTrack =
+      range === 'all'
+        ? new Map(Object.entries(stats).map(([id, entry]) => [id, entry.plays]))
+        : playsIn(playLog, range, today)
     let plays = 0
     const played: { track: Track; plays: number }[] = []
-    for (const [id, entry] of Object.entries(stats)) {
-      plays += entry.plays
+    for (const [id, count] of perTrack) {
+      plays += count
       const track = byId.get(id)
-      if (track && entry.plays > 0) played.push({ track, plays: entry.plays })
+      if (track && count > 0) played.push({ track, plays: count })
     }
     const artistPlays = new Map<string, { plays: number; cover: string | null }>()
-    const albumPlays = new Map<string, { plays: number; cover: string | null; album: string; artist: string }>()
+    const albumPlays = new Map<string, { plays: number; cover: string | null; album: string }>()
     const genrePlays = new Map<string, number>()
     for (const { track, plays: count } of played) {
       const artist = artistPlays.get(track.artist) ?? { plays: 0, cover: track.cover }
       artist.plays += count
       artistPlays.set(track.artist, artist)
       const key = albumKey(track)
-      const album = albumPlays.get(key) ?? { plays: 0, cover: track.cover, album: track.album, artist: track.albumArtist }
+      const album = albumPlays.get(key) ?? { plays: 0, cover: track.cover, album: track.album }
       album.plays += count
       albumPlays.set(key, album)
       if (track.genre) genrePlays.set(track.genre, (genrePlays.get(track.genre) ?? 0) + count)
     }
-    const listened = Object.values(listenLog).reduce((sum, value) => sum + value, 0)
-    const thisWeek = Object.entries(listenLog)
-      .filter(([key]) => key >= dayKey(today - 6 * 86_400_000))
-      .reduce((sum, [, value]) => sum + value, 0)
+    const skipped = Object.entries(stats)
+      .filter(([id, entry]) => (entry.skips ?? 0) > 0 && byId.has(id))
+      .sort((a, b) => (b[1].skips ?? 0) - (a[1].skips ?? 0))
+      .slice(0, 6)
+      .map(([id, entry]) => ({ track: byId.get(id) as Track, skips: entry.skips ?? 0 }))
     return {
       plays,
-      listened,
-      thisWeek,
+      listened: listenedIn(listenLog, range, today),
       distinct: played.length,
       artists: [...artistPlays.entries()].sort((a, b) => b[1].plays - a[1].plays).slice(0, 6),
       albums: [...albumPlays.entries()].sort((a, b) => b[1].plays - a[1].plays).slice(0, 6),
       genres: [...genrePlays.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
+      songs: played.sort((a, b) => b.plays - a.plays).slice(0, 6),
+      skipped,
     }
-  }, [tracks, stats, listenLog, today])
+  }, [tracks, stats, listenLog, playLog, range, today])
 
   const libraryArtists = useMemo(() => groupArtists(tracks).length, [tracks])
   const libraryAlbums = useMemo(() => groupAlbums(tracks).length, [tracks])
+  const hasHistory = Object.keys(stats).length > 0 || Object.keys(listenLog).length > 0
 
-  if (!summary.plays) {
+  if (!hasHistory) {
     return (
       <div className="view">
         <ViewHeader eyebrow="Insights" title="Listening stats" />
@@ -506,15 +607,39 @@ export function StatsView() {
     )
   }
 
+  const rangeLabel = range === '7d' ? 'in the last 7 days' : range === '30d' ? 'in the last 30 days' : 'all time'
+
   return (
     <div className="view">
-      <ViewHeader eyebrow="Insights" title="Listening stats" sub="Counted on this PC only. Nothing leaves your computer." />
+      <ViewHeader
+        eyebrow="Insights"
+        title="Listening stats"
+        sub="Counted on this PC only. A song counts as played after 10 seconds."
+        actions={
+          <div className="segmented" role="radiogroup" aria-label="Period">
+            {RANGES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={range === item.id}
+                className={cx('segment', range === item.id && 'active')}
+                onClick={() => setRange(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        }
+      />
+
+      <StreakCard log={listenLog} />
 
       <div className="stat-tiles">
         <div className="stat-tile">
           <span className="stat-label">Listening time</span>
           <span className="stat-number">{formatListen(summary.listened)}</span>
-          <span className="stat-note">{formatListen(summary.thisWeek)} in the last 7 days</span>
+          <span className="stat-note">{rangeLabel}</span>
         </div>
         <div className="stat-tile">
           <span className="stat-label">Plays</span>
@@ -530,42 +655,70 @@ export function StatsView() {
         </div>
       </div>
 
-      <DailyChart log={listenLog} />
+      <ListeningChart log={listenLog} range={range} />
 
-      <div className="rank-grid">
-        <RankList
-          title="Top artists"
-          items={summary.artists.map(([name, entry]) => ({
-            key: name,
-            label: name,
-            sub: plural(entry.plays, 'play'),
-            value: entry.plays,
-            cover: entry.cover,
-            onClick: () => s.setView({ kind: 'artist', id: name }),
-          }))}
-        />
-        <RankList
-          title="Top albums"
-          items={summary.albums.map(([key, entry]) => ({
-            key,
-            label: entry.album,
-            sub: plural(entry.plays, 'play'),
-            value: entry.plays,
-            cover: entry.cover,
-            onClick: () => s.setView({ kind: 'album', id: key }),
-          }))}
-        />
-        <RankList
-          title="Top genres"
-          items={summary.genres.map(([name, plays]) => ({
-            key: name,
-            label: name,
-            sub: plural(plays, 'play'),
-            value: plays,
-            onClick: () => s.setView({ kind: 'genre', id: name }),
-          }))}
-        />
-      </div>
+      {summary.plays === 0 && range !== 'all' ? (
+        <p className="muted note">No plays counted {rangeLabel} yet.</p>
+      ) : (
+        <div className="rank-grid">
+          <RankList
+            title="Top songs"
+            items={summary.songs.map(({ track, plays }) => ({
+              key: track.id,
+              label: track.title,
+              sub: plural(plays, 'play'),
+              value: plays,
+              cover: track.cover,
+              onClick: () => s.setView({ kind: 'album', id: albumKey(track) }),
+            }))}
+          />
+          <RankList
+            title="Top artists"
+            items={summary.artists.map(([name, entry]) => ({
+              key: name,
+              label: name,
+              sub: plural(entry.plays, 'play'),
+              value: entry.plays,
+              cover: entry.cover,
+              onClick: () => s.setView({ kind: 'artist', id: name }),
+            }))}
+          />
+          <RankList
+            title="Top albums"
+            items={summary.albums.map(([key, entry]) => ({
+              key,
+              label: entry.album,
+              sub: plural(entry.plays, 'play'),
+              value: entry.plays,
+              cover: entry.cover,
+              onClick: () => s.setView({ kind: 'album', id: key }),
+            }))}
+          />
+          <RankList
+            title="Top genres"
+            items={summary.genres.map(([name, plays]) => ({
+              key: name,
+              label: name,
+              sub: plural(plays, 'play'),
+              value: plays,
+              onClick: () => s.setView({ kind: 'genre', id: name }),
+            }))}
+          />
+          {summary.skipped.length > 0 && (
+            <RankList
+              title="Most skipped"
+              items={summary.skipped.map(({ track, skips }) => ({
+                key: track.id,
+                label: track.title,
+                sub: plural(skips, 'skip'),
+                value: skips,
+                cover: track.cover,
+                onClick: () => s.setView({ kind: 'album', id: albumKey(track) }),
+              }))}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }

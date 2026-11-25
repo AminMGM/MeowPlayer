@@ -108,6 +108,8 @@ function MainApp() {
         store.seek(0)
       } else if (command === 'addToLibrary' && store.playingTrack) store.addToLibrary([store.playingTrack.id])
       else if (command === 'like' && store.playingTrack) store.toggleLike(store.playingTrack.id)
+      else if (command === 'shuffle') store.toggleShuffle()
+      else if (command === 'repeat') store.cycleRepeat()
       else if (command === 'toggleMiniLyrics') store.updateSettings({ miniLyrics: !store.settings.miniLyrics })
       else if (command.startsWith('seek:')) store.seek(Number(command.slice(5)) || 0)
     })
@@ -277,6 +279,8 @@ function MainApp() {
         external: selectIsTransient(s),
         lyric: line?.trim() ? line : null,
         lyricsOn: s.settings.miniLyrics,
+        shuffle: s.shuffle,
+        repeat: s.repeat,
       }
     }
     let timer = 0
@@ -302,7 +306,10 @@ function MainApp() {
       // Keep the cached state fresh for the next time the mini window opens.
       else if (
         !state.miniVisible &&
-        (state.playingTrack !== previous.playingTrack || state.isPlaying !== previous.isPlaying)
+        (state.playingTrack !== previous.playingTrack ||
+          state.isPlaying !== previous.isPlaying ||
+          state.shuffle !== previous.shuffle ||
+          state.repeat !== previous.repeat)
       ) {
         const next = build()
         if (next) api.mini.broadcast(next)

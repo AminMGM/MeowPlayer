@@ -3,6 +3,7 @@ import { engine } from '../../audio/engine'
 import type { RepeatMode, Settings, Track } from '../../types'
 import { shuffleArray } from '../../utils'
 import { persist, sessionOf } from '../persist'
+import { playCounter } from '../playCounter'
 import * as Q from '../queue'
 import type { AppState, PlaybackSlice, Slice } from '../state'
 
@@ -32,7 +33,10 @@ export const createPlaybackSlice: Slice<PlaybackSlice> = (set, get) => {
       gainDb: gainFor(track, get().settings.normalize),
     })
     void get().fetchLyrics(track)
-    get().recordPlay(track)
+    // Plays are counted after 10 seconds of listening (see playCounter);
+    // leaving the previous track before that counts as a skip.
+    const skipped = playCounter.switchTo(track.id)
+    if (skipped) get().recordSkip(skipped)
     persist('session')
   }
 
@@ -126,7 +130,7 @@ export const createPlaybackSlice: Slice<PlaybackSlice> = (set, get) => {
         // Repeat one: replay without counting a skip.
         engine.seek(0)
         void engine.resume()
-        if (s.playingTrack) s.recordPlay(s.playingTrack)
+        playCounter.restart()
         return
       }
       get().jump(index, { fade: auto ? s.settings.crossfade : 0 })

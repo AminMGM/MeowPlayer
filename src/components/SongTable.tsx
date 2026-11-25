@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore'
 import type { Track } from '../types'
 import { cx, formatTime } from '../utils'
 import { Cover } from './Cover'
+import { AlphaIndex } from './AlphaIndex'
 import { Icon } from './Icons'
 import { LikeButton } from './LikeButton'
 
@@ -26,6 +27,8 @@ interface SongTableProps {
   reorder?: (from: number, to: number) => void
   onRemove?: (indices: number[]) => void
   emptyLabel?: string
+  /** Shows an A–Z jump rail keyed on this value (for lists sorted by it). */
+  indexBy?: (track: Track) => string
 }
 
 const ROW_HEIGHT = 52
@@ -70,6 +73,7 @@ export function SongTable({
   reorder,
   onRemove,
   emptyLabel,
+  indexBy,
 }: SongTableProps) {
   const playingId = useStore((state) => state.playingTrack?.id)
   const isPlaying = useStore((state) => state.isPlaying)
@@ -317,6 +321,9 @@ export function SongTable({
           )
         })}
       </div>
+      {indexBy && tracks.length > 30 && (
+        <AlphaIndex values={tracks.map(indexBy)} bodyRef={bodyRef} rowHeight={ROW_HEIGHT} />
+      )}
     </div>
   )
 }

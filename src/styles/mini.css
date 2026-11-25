@@ -152,7 +152,7 @@
 
 .mini-controls {
   display: grid;
-  grid-template-columns: 1fr auto auto auto 1fr;
+  grid-template-columns: 1fr auto auto auto auto auto 1fr;
   align-items: center;
   gap: 6px;
 }

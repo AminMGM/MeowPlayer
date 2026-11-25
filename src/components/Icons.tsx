@@ -1,104 +1,201 @@
+/*
+ * MeowPlayer's icon set, drawn for the app on a 24px grid: soft rounded
+ * strokes, rounded filled transport glyphs, and a filled "active" variant for
+ * navigation icons. Icons that change state (play/pause, like, shuffle,
+ * repeat, volume, the active nav item) pop in when they switch; hover
+ * micro-animations live in components.css under "icons".
+ */
+
+/** Always-filled glyphs (transport controls). */
 const FILLED: Record<string, string[]> = {
-  play: ['M8 5.2v13.6L19.2 12z'],
-  pause: ['M6.2 5h3.9v14H6.2zm7.7 0h3.9v14h-3.9z'],
-  next: ['M5.5 18.2V5.8L15 12zM16.6 5.4h2.4v13.2h-2.4z'],
-  prev: ['M18.5 18.2V5.8L9 12zM5.5 5.4h2.4v13.2H5.5z'],
-  shuffle: [
-    'M16.8 3.4 21 7.2l-4.2 3.8V8.6h-1.5c-1 0-1.7.4-2.4 1.3l-1.2 1.6-1.4-1.9 1-1.3c1.1-1.4 2.3-2 4-2h1.5zM3 5.6h3.1c1.7 0 2.9.6 4 2l5.2 7c.7.9 1.4 1.3 2.4 1.3h1.5v-2.4L21 18.6l-4.2 3.8v-2.4h-1.5c-1.7 0-2.9-.6-4-2l-5.2-7c-.7-.9-1.4-1.3-2.4-1.3H3z',
+  play: ['M8 6.4c0-1.2 1.3-1.9 2.3-1.3l9 5.6c1 .6 1 2 0 2.6l-9 5.6c-1 .6-2.3-.1-2.3-1.3z'],
+  pause: [
+    'M7.5 5h2.2c.8 0 1.4.6 1.4 1.4v11.2c0 .8-.6 1.4-1.4 1.4H7.5c-.8 0-1.4-.6-1.4-1.4V6.4C6.1 5.6 6.7 5 7.5 5zm6.8 0h2.2c.8 0 1.4.6 1.4 1.4v11.2c0 .8-.6 1.4-1.4 1.4h-2.2c-.8 0-1.4-.6-1.4-1.4V6.4c0-.8.6-1.4 1.4-1.4z',
   ],
-  repeat: [
-    'M17.5 3.5 21 7l-3.5 3.5V8.2H8.6A1.6 1.6 0 0 0 7 9.8v2.6H4.6V9.8A4 4 0 0 1 8.6 5.8h8.9zM6.5 20.5 3 17l3.5-3.5v2.3h8.9a1.6 1.6 0 0 0 1.6-1.6v-2.6h2.4v2.6a4 4 0 0 1-4 4H6.5z',
+  next: [
+    'M5 7.2c0-1.1 1.2-1.8 2.2-1.2l7.5 4.8c.9.6.9 1.8 0 2.4L7.2 18c-1 .6-2.2-.1-2.2-1.2z',
+    'M17.3 5.5h.4c.7 0 1.3.6 1.3 1.3v10.4c0 .7-.6 1.3-1.3 1.3h-.4c-.7 0-1.3-.6-1.3-1.3V6.8c0-.7.6-1.3 1.3-1.3z',
+  ],
+  prev: [
+    'M19 7.2c0-1.1-1.2-1.8-2.2-1.2l-7.5 4.8c-.9.6-.9 1.8 0 2.4l7.5 4.8c1 .6 2.2-.1 2.2-1.2z',
+    'M6.3 5.5h.4c.7 0 1.3.6 1.3 1.3v10.4c0 .7-.6 1.3-1.3 1.3h-.4c-.7 0-1.3-.6-1.3-1.3V6.8c0-.7.6-1.3 1.3-1.3z',
   ],
   'more-horizontal': [
     'M12 6.4a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8zM12 13.9a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8zM12 21.4a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8z',
   ],
   heart: [
-    'M12 20.9 4.9 14A5.6 5.6 0 0 1 12 5.9 5.6 5.6 0 0 1 19.1 14z',
+    'M12 20.6c-.3 0-.6-.1-.8-.3l-6.4-6.1A5.4 5.4 0 0 1 12 6a5.4 5.4 0 0 1 7.2 8.2l-6.4 6.1c-.2.2-.5.3-.8.3z',
   ],
-  star: ['M12 3.2l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.5l-5.6 2.9 1.1-6.2L3 9.8l6.2-.9z'],
 }
 
 const STROKE: Record<string, string[]> = {
-  search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M16.2 16.2 21 21'],
-  home: ['M3 10.7 12 3.3l9 7.4V20a1 1 0 0 1-1 1h-5.2v-6.6H9.2V21H4a1 1 0 0 1-1-1z'],
-  music: ['M9 18V5.4L20 3v12', 'M9 18a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0z', 'M20 15a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0z'],
+  search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M16.2 16.2 20.5 20.5'],
+  home: ['M4 10.4 10.7 4.8a2 2 0 0 1 2.6 0l6.7 5.6V19a2 2 0 0 1-2 2h-3.4v-5.2a1 1 0 0 0-1-1h-3.2a1 1 0 0 0-1 1V21H6a2 2 0 0 1-2-2z'],
+  music: ['M9.4 18V6.2c0-.5.3-.9.8-1L19 3.4v11.4', 'M9.4 18a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0z', 'M19 14.8a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0z', 'M9.4 9.2 19 7.2'],
   disc: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 14.6a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2z'],
-  mic: ['M12 15.2a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5.2a4 4 0 0 0 4 4z', 'M5.4 11.4a6.6 6.6 0 0 0 13.2 0', 'M12 18.4V21'],
-  playlist: ['M4 6.5h11M4 11.5h11M4 16.5h7', 'M17 13.4v6.2', 'M20 10.4v9'],
+  mic: ['M12 15.2a4 4 0 0 0 4-4V6.8a4 4 0 0 0-8 0v4.4a4 4 0 0 0 4 4z', 'M5.4 11.4a6.6 6.6 0 0 0 13.2 0', 'M12 18.4V21'],
+  playlist: ['M4 6.5h11M4 11.5h11M4 16.5h7', 'M17.5 18.6V9.8l3.5 1.2'],
   plus: ['M12 5v14M5 12h14'],
+  shuffle: [
+    'M3.5 7.2h2.4c1.6 0 3 .8 3.9 2.1l4 5.6c.9 1.3 2.3 2.1 3.9 2.1h2.8',
+    'M3.5 16.8h2.4c1.6 0 3-.8 3.9-2.1l.4-.5',
+    'M13.8 9.8l.4-.5c.9-1.3 2.3-2.1 3.9-2.1h2.8',
+    'M18.2 4.6l2.6 2.6-2.6 2.6',
+    'M18.2 14.4l2.6 2.6-2.6 2.6',
+  ],
+  repeat: [
+    'M17.2 3.6l2.9 2.9-2.9 2.9',
+    'M4 11.4v-1.6a3.3 3.3 0 0 1 3.3-3.3H20',
+    'M6.8 20.4l-2.9-2.9 2.9-2.9',
+    'M20 12.6v1.6a3.3 3.3 0 0 1-3.3 3.3H4',
+  ],
+  repeat1: [
+    'M17.2 3.6l2.9 2.9-2.9 2.9',
+    'M4 11.4v-1.6a3.3 3.3 0 0 1 3.3-3.3H20',
+    'M6.8 20.4l-2.9-2.9 2.9-2.9',
+    'M20 12.6v1.6a3.3 3.3 0 0 1-3.3 3.3H4',
+    'M11 10.6l1.4-.9v4.6',
+  ],
   settings: [
     'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z',
     'M19.4 15a1.7 1.7 0 0 0 .4 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.9a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.4-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.9a2 2 0 1 1 4 0V4a1.7 1.7 0 0 0 2.9 1.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 20 11h.1a2 2 0 1 1 0 4H20a1.7 1.7 0 0 0-1.6 1z',
   ],
-  queue: ['M4 6.5h9M4 11.5h9M4 16.5h6', 'M16.5 10.4v7.4l5-3.7z'],
+  queue: ['M4 6.5h9M4 11.5h9M4 16.5h6', 'M16.6 11.2c0-.6.7-1 1.2-.6l3.2 2.3c.4.3.4 1 0 1.3l-3.2 2.3c-.5.4-1.2 0-1.2-.6z'],
   sliders: ['M4 8h9M17 8h3M4 16h4M12 16h8', 'M15 5.6v4.8M9 13.6v4.8'],
-  'chevron-left': ['M15 18.5 8.5 12 15 5.5'],
-  'chevron-right': ['M9 5.5 15.5 12 9 18.5'],
-  'chevron-down': ['M5.5 9 12 15.5 18.5 9'],
-  x: ['M18 6 6 18M6 6l12 12'],
-  moon: ['M20.6 13.4A8.6 8.6 0 1 1 10.6 3.4a6.9 6.9 0 0 0 10 10z'],
-  trash: ['M3.6 6.4h16.8M9 6.4V3.8h6v2.6M6.4 6.4 7.4 20a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1l1-13.6'],
-  download: ['M12 3.5v11.6M7.4 10.9 12 15.5l4.6-4.6M4.4 20.5h15.2'],
-  check: ['M20 6.5 9.4 17.2 4 11.8'],
-  clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7.4V12l3.4 2'],
-  folder: ['M3.4 7.4a2 2 0 0 1 2-2h3.4l2 2h7.8a2 2 0 0 1 2 2v8.6a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2z'],
+  'chevron-left': ['M14.6 18 8.6 12l6-6'],
+  'chevron-right': ['M9.4 6l6 6-6 6'],
+  'chevron-down': ['M6 9.4l6 6 6-6'],
+  x: ['M17.5 6.5l-11 11M6.5 6.5l11 11'],
+  moon: ['M20.4 13.6A8.4 8.4 0 1 1 10.4 3.6a6.8 6.8 0 0 0 10 10z'],
+  trash: ['M4 6.6h16', 'M9.2 6.6V5a1.4 1.4 0 0 1 1.4-1.4h2.8A1.4 1.4 0 0 1 14.8 5v1.6', 'M6.2 6.6l.9 12.6a1.8 1.8 0 0 0 1.8 1.6h6.2a1.8 1.8 0 0 0 1.8-1.6l.9-12.6', 'M10.2 11v5.4M13.8 11v5.4'],
+  download: ['M12 3.8v11.2', 'M7.6 10.8 12 15.2l4.4-4.4', 'M4.6 20.2h14.8'],
+  check: ['M19.6 6.8 9.6 16.8l-5.2-5.2'],
+  clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7.4V12l3.2 2'],
+  folder: ['M3.4 7.4a2 2 0 0 1 2-2h3.2c.5 0 1 .2 1.4.6l1.4 1.4h7.2a2 2 0 0 1 2 2v8.6a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2z'],
   // a stack of folders: a scan location that contains several subfolders
   folders: [
     'M6.4 5.4a2 2 0 0 1 2-2h3l1.8 1.8h6.4a2 2 0 0 1 2 2v7.4a2 2 0 0 1-2 2h-1.2',
     'M3.6 9.2a2 2 0 0 1 2-2h2.8l1.8 1.8h6.2a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5.6a2 2 0 0 1-2-2z',
   ],
-  image: ['M4 5.4h16v13.2H4z', 'M4 15.4l4.6-4.6 3.4 3.4 3-3 5 5', 'M15.4 9.4h.01'],
+  image: ['M6 4.6h12a2 2 0 0 1 2 2v10.8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.6a2 2 0 0 1 2-2z', 'M4.4 16l4.2-4.2 3.4 3.4 3-3 4.6 4.6', 'M15.4 9h.01'],
   edit: ['M4.4 19.6l4.2-1.1 10.2-10.2a2 2 0 0 0-2.8-2.8L5.8 15.7z', 'M15.4 6.9l1.7 1.7'],
-  refresh: ['M20.4 12a8.4 8.4 0 1 1-2.9-6.4', 'M20.6 3.6v5.6h-5.6'],
-  volume: ['M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z', 'M15.6 9.2a4 4 0 0 1 0 5.6', 'M18.2 6.6a8 8 0 0 1 0 10.8'],
-  'volume-mute': ['M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z', 'M16 9.6l4.4 4.8M20.4 9.6 16 14.4'],
+  refresh: ['M20.2 12a8.2 8.2 0 1 1-2.8-6.2', 'M20.4 3.8v5h-5'],
+  volume: ['M4 10c0-.6.4-1 1-1h2.4l4-3.4c.6-.5 1.6 0 1.6.8v11.2c0 .8-1 1.3-1.6.8l-4-3.4H5c-.6 0-1-.4-1-1z', 'M16.2 9.4a3.8 3.8 0 0 1 0 5.2', 'M18.8 6.8a7.6 7.6 0 0 1 0 10.4'],
+  'volume-mute': ['M4 10c0-.6.4-1 1-1h2.4l4-3.4c.6-.5 1.6 0 1.6.8v11.2c0 .8-1 1.3-1.6.8l-4-3.4H5c-.6 0-1-.4-1-1z', 'M16.4 9.8l4.2 4.4M20.6 9.8l-4.2 4.4'],
   expand: ['M4 15v5h5M20 9V4h-5'],
   // picture-in-picture: the mini player
-  pip: ['M3.4 5.2h17.2v13.6H3.4z', 'M11.6 11.8h6.4v5.2h-6.4z'],
+  pip: ['M5.4 5h13.2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M12.6 11.8h4.6a1 1 0 0 1 1 1v2.6a1 1 0 0 1-1 1h-4.6a1 1 0 0 1-1-1v-2.6a1 1 0 0 1 1-1z'],
   collapse: ['M9 4v5H4M15 20v-5h5'],
   minimize: ['M5 12h14'],
-  maximize: ['M5.4 5.4h13.2v13.2H5.4z'],
-  external: ['M14.4 3.6h6v6M20.4 3.6 11 13', 'M9.6 4.4H5.4a1 1 0 0 0-1 1v13.2a1 1 0 0 0 1 1h13.2a1 1 0 0 0 1-1v-4.2'],
-  speaker: ['M6 9.4h3.4L14 5.6v12.8L9.4 14.6H6z'],
+  maximize: ['M7 5.4h10a1.6 1.6 0 0 1 1.6 1.6v10a1.6 1.6 0 0 1-1.6 1.6H7A1.6 1.6 0 0 1 5.4 17V7A1.6 1.6 0 0 1 7 5.4z'],
+  external: ['M14.4 3.6h6v6M20.4 3.6 11 13', 'M9.6 4.4H6a1.6 1.6 0 0 0-1.6 1.6v12A1.6 1.6 0 0 0 6 19.6h12a1.6 1.6 0 0 0 1.6-1.6v-3.6'],
+  speaker: ['M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M12 17a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 7.4h.01'],
   sort: ['M7 4v16M3.6 16.6 7 20l3.4-3.4', 'M17 20V4M13.6 7.4 17 4l3.4 3.4'],
   'log-out': ['M15 4.4h3.4a1.6 1.6 0 0 1 1.6 1.6v12a1.6 1.6 0 0 1-1.6 1.6H15', 'M10 8.4 6.4 12l3.6 3.6', 'M6.6 12H16'],
   'arrow-left': ['M19 12H5M11 6 5 12l6 6'],
   'arrow-right': ['M5 12h14M13 6l6 6-6 6'],
-  'heart-outline': ['M12 20.2 5.1 13.5a5 5 0 0 1 6.9-7.2 5 5 0 0 1 6.9 7.2z'],
-  chart: ['M4 20h16', 'M7 16.5v-5M12 16.5V7M17 16.5v-8'],
+  'heart-outline': ['M12 19.8 5.4 13.5A4.6 4.6 0 0 1 12 7.2a4.6 4.6 0 0 1 6.6 6.3z'],
+  chart: ['M4 20.4h16', 'M7 16.6v-5M12 16.6V7M17 16.6v-8'],
   sparkle: ['M12 3.5 13.9 10 20.5 12 13.9 14 12 20.5 10.1 14 3.5 12 10.1 10z'],
+  star: ['M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z'],
   history: ['M3.6 12a8.4 8.4 0 1 0 2.5-6', 'M3.4 4.4v4.2h4.2', 'M12 7.8V12l3 1.8'],
   palette: [
     'M12 3.4a8.6 8.6 0 0 0 0 17.2c1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6h1.9a4.4 4.4 0 0 0 4.4-4.4c0-4.1-3.9-7.4-8.7-7.4z',
     'M7.6 11.6h.01M10 7.8h.01M14.4 7.8h.01',
   ],
   info: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 11v5.4M12 7.8h.01'],
-  alert: ['M12 3.6 21.4 20H2.6z', 'M12 10v4.4M12 17.4h.01'],
-  monitor: ['M3.6 4.6h16.8v11.6H3.6z', 'M8.6 20h6.8M12 16.2V20'],
-  library: ['M4.4 4.4v15.2M8.6 4.4v15.2', 'M12.6 5.4l3.8-1 3.6 14.8-3.8 1z'],
-  tag: ['M3.6 12.6V4.4h8.2l8.6 8.6-8.2 8.2z', 'M8 8.4h.01'],
+  alert: ['M10.3 4.6a2 2 0 0 1 3.4 0l7.2 12.6a2 2 0 0 1-1.7 3H4.8a2 2 0 0 1-1.7-3z', 'M12 10v3.8M12 16.8h.01'],
+  monitor: ['M5.4 4.6h13.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8v-8a1.8 1.8 0 0 1 1.8-1.8z', 'M8.6 20h6.8M12 16.2V20'],
+  library: ['M5.2 4.4v15.2M9.2 4.4v15.2', 'M13.2 5.6l3.4-.9 3.4 14-3.4.9z'],
+  tag: ['M3.6 5.2a1.6 1.6 0 0 1 1.6-1.6h6.1c.4 0 .8.2 1.1.5l7.6 7.6c.6.6.6 1.6 0 2.3l-6 6c-.6.6-1.6.6-2.3 0l-7.6-7.6a1.6 1.6 0 0 1-.5-1.1z', 'M8.2 8.2h.01'],
   lyrics: ['M4 6h16M4 10.4h16M4 14.8h10', 'M17.6 13.6v6.2', 'M17.6 13.6c1.2.2 2.4.9 2.8 2'],
   headphones: ['M4 15v-3a8 8 0 0 1 16 0v3', 'M4 14.4h2.4a1.4 1.4 0 0 1 1.4 1.4v3.4a1.4 1.4 0 0 1-1.4 1.4H4zM20 14.4h-2.4a1.4 1.4 0 0 0-1.4 1.4v3.4a1.4 1.4 0 0 0 1.4 1.4H20z'],
+  flame: ['M12 21c-3.6 0-6.4-2.6-6.4-6.2 0-3.2 2.2-5 3.6-7.2.4 1.6 1.4 2.6 2.4 2.8-.2-2.8.8-5.4 3-6.8-.2 2.8 3.8 5.4 3.8 10.8C18.4 18.2 15.6 21 12 21z'],
+  wand: ['M5 19 15.4 8.6', 'M14 7.2l1.4-1.4 2.8 2.8-1.4 1.4z', 'M18.4 3.4v2.4M17.2 4.6h2.4M20.4 11.4v1.6M19.6 12.2h1.6M9.4 3.6v1.6M8.6 4.4h1.6'],
+  link: ['M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1', 'M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1'],
 }
+
+/** Filled variants shown for the active navigation item. */
+const ACTIVE: Record<string, { fill: string[]; stroke?: string[]; evenOdd?: boolean }> = {
+  home: {
+    fill: [
+      'M10.7 4.4a2 2 0 0 1 2.6 0l6.4 5.4c.5.4.8 1 .8 1.6V19a2 2 0 0 1-2 2h-3.2v-5.2a1.2 1.2 0 0 0-1.2-1.2h-4.2a1.2 1.2 0 0 0-1.2 1.2V21H6a2 2 0 0 1-2-2v-7.6c0-.6.3-1.2.8-1.6z',
+    ],
+  },
+  disc: {
+    fill: ['M12 2.8a9.2 9.2 0 1 1 0 18.4 9.2 9.2 0 0 1 0-18.4zm0 6.8a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z'],
+    evenOdd: true,
+  },
+  music: {
+    fill: [
+      'M8.6 6.2c0-1 .7-1.8 1.6-2l7.8-1.6c1-.2 2 .6 2 1.6v10.6a3.2 3.2 0 1 1-2-3V8.2l-7.4 1.6v8.2a3.2 3.2 0 1 1-2-3z',
+    ],
+  },
+  library: {
+    fill: [
+      'M5.2 3.6c.9 0 1.6.7 1.6 1.6v13.6a1.6 1.6 0 0 1-3.2 0V5.2c0-.9.7-1.6 1.6-1.6zm4 0c.9 0 1.6.7 1.6 1.6v13.6a1.6 1.6 0 0 1-3.2 0V5.2c0-.9.7-1.6 1.6-1.6zm3.9 2 2.3-.6c.9-.2 1.7.3 1.9 1.2l3.1 12.6c.2.9-.3 1.7-1.2 1.9l-2.3.6c-.9.2-1.7-.3-1.9-1.2L11.9 7.5c-.2-.9.3-1.7 1.2-1.9z',
+    ],
+  },
+  mic: {
+    fill: ['M12 2.6a4.2 4.2 0 0 1 4.2 4.2v4.4a4.2 4.2 0 0 1-8.4 0V6.8A4.2 4.2 0 0 1 12 2.6z'],
+    stroke: ['M5.4 11.4a6.6 6.6 0 0 0 13.2 0', 'M12 18.4V21'],
+  },
+  tag: {
+    fill: [
+      'M3.4 5.2c0-1 .8-1.8 1.8-1.8h6.1c.5 0 .9.2 1.3.5l7.6 7.6c.7.7.7 1.8 0 2.5l-6 6c-.7.7-1.8.7-2.5 0L4 12.4c-.3-.4-.5-.8-.5-1.3zm4.8 1.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z',
+    ],
+    evenOdd: true,
+  },
+  folder: {
+    fill: ['M3.4 7.4a2 2 0 0 1 2-2h3.2c.5 0 1 .2 1.4.6l1.4 1.4h7.2a2 2 0 0 1 2 2v8.6a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2z'],
+  },
+  chart: {
+    fill: [
+      'M6 10.6h2a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zm5-4.6h2a1 1 0 0 1 1 1v9.6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm5 2.6h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z',
+    ],
+    stroke: ['M4 20.4h16'],
+  },
+  sparkle: { fill: ['M12 3.5 13.9 10 20.5 12 13.9 14 12 20.5 10.1 14 3.5 12 10.1 10z'] },
+  star: { fill: ['M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z'] },
+  heart: { fill: FILLED.heart },
+  'heart-outline': { fill: FILLED.heart },
+  playlist: { fill: [], stroke: ['M4 6.5h11M4 11.5h11M4 16.5h7', 'M17.5 18.6V9.8l3.5 1.2', 'M17.5 18.6a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0z'] },
+}
+
+/** Icons whose glyph swaps with state; they pop in when they change. */
+const POPS = new Set(['play', 'pause', 'heart', 'heart-outline', 'shuffle', 'repeat', 'repeat1', 'volume', 'volume-mute', 'check'])
 
 interface IconProps {
   name: string
   size?: number
   className?: string
   strokeWidth?: number
+  /** Use the filled variant (for the active nav item), when the icon has one. */
   filledAlt?: boolean
 }
 
-export function Icon({ name, size = 18, className, strokeWidth = 1.7 }: IconProps) {
-  if (name === 'repeat1') {
+export function Icon({ name, size = 18, className, strokeWidth = 1.85, filledAlt }: IconProps) {
+  const active = filledAlt ? ACTIVE[name] : undefined
+  const classes = ['icon', `icon-${name}`, (POPS.has(name) || active) && 'icon-pop', active && 'icon-active', className]
+    .filter(Boolean)
+    .join(' ')
+  const common = {
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    className: classes,
+    'aria-hidden': true as const,
+  }
+
+  if (active) {
     return (
-      <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="currentColor" aria-hidden="true">
-        {FILLED.repeat.map((d, index) => (
-          <path key={index} d={d} />
+      <svg key={`${name}-active`} {...common} fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        {active.fill.map((d, index) => (
+          <path key={`f${index}`} d={d} fill="currentColor" stroke="none" fillRule={active.evenOdd ? 'evenodd' : undefined} />
         ))}
-        <text x="12" y="15.6" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none">
-          1
-        </text>
+        {active.stroke?.map((d, index) => (
+          <path key={`s${index}`} d={d} />
+        ))}
       </svg>
     )
   }
@@ -106,7 +203,7 @@ export function Icon({ name, size = 18, className, strokeWidth = 1.7 }: IconProp
   const filled = FILLED[name]
   if (filled) {
     return (
-      <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="currentColor" aria-hidden="true">
+      <svg key={name} {...common} fill="currentColor">
         {filled.map((d, index) => (
           <path key={index} d={d} />
         ))}
@@ -117,16 +214,13 @@ export function Icon({ name, size = 18, className, strokeWidth = 1.7 }: IconProp
   const paths = STROKE[name] ?? []
   return (
     <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      className={className}
+      key={name}
+      {...common}
       fill="none"
       stroke="currentColor"
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      aria-hidden="true"
     >
       {paths.map((d, index) => (
         <path key={index} d={d} />

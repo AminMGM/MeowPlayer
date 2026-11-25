@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { engine } from '../audio/engine'
 import { getStore, useStore } from '../store/useStore'
-import { activeLyricIndex, cx, lyricProgress } from '../utils'
+import type { LyricsLine } from '../types'
+import { activeLyricIndex, cx, isRtl, lyricProgress } from '../utils'
 import { Icon } from './Icons'
 import { Logo } from './Logo'
 
@@ -13,38 +15,121 @@ interface LyricsProps {
 /** How long a manual scroll pauses the automatic follow, in ms. */
 const MANUAL_PAUSE = 4000
 
-export function Lyrics({ stage, className }: LyricsProps) {
-  const lyrics = useStore((state) => state.lyrics)
+/**
+ * Follows playback every frame using the audio element's own clock (the store
+ * only hears about the position a few times a second, which made the highlight
+ * lag). React re-renders only when the current line changes; the fill of the
+ * current line is written straight to its style.
+ */
+function useActiveLine(lines: LyricsLine[], lineRefs: React.RefObject<Array<HTMLElement | null>>): number {
+  const isPlaying = useStore((state) => state.isPlaying)
   const time = useStore((state) => state.time)
-  const enabled = useStore((state) => state.settings.lyrics)
-  const autoLyrics = useStore((state) => state.settings.autoLyrics)
-  const track = useStore((state) => state.playingTrack)
-  const listRef = useRef<HTMLDivElement | null>(null)
-  const lineRefs = useRef<Array<HTMLParagraphElement | null>>([])
-  const manualUntil = useRef(0)
-  const active = activeLyricIndex(lyrics.synced, time)
-  const progress = lyricProgress(lyrics.synced, active, time)
+  const [live, setActive] = useState(-1)
 
-  // Scroll the lyrics box itself (scrollIntoView would drag the whole view along).
+  useEffect(() => {
+    if (!isPlaying || !lines.length) return
+    let frame = 0
+    let current = -2
+    const tick = (): void => {
+      const now = engine.currentTime
+      const index = activeLyricIndex(lines, now)
+      if (index !== current) {
+        current = index
+        setActive(index)
+      }
+      const node = lineRefs.current?.[index]
+      if (node) node.style.setProperty('--progress', `${(lyricProgress(lines, index, now) * 100).toFixed(1)}%`)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [isPlaying, lines, lineRefs])
+
+  // While paused (or after a seek) the store position is exact enough.
+  return isPlaying ? live : activeLyricIndex(lines, time)
+}
+
+function SyncedLyrics({ lines, stage, className, trackId }: { lines: LyricsLine[]; stage?: boolean; className?: string; trackId: string }) {
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const lineRefs = useRef<Array<HTMLElement | null>>([])
+  const manualUntil = useRef(0)
+  const active = useActiveLine(lines, lineRefs)
+
+  // A new song starts at the top.
+  useEffect(() => {
+    manualUntil.current = 0
+    listRef.current?.scrollTo({ top: 0 })
+  }, [trackId])
+
+  // Keep the current line a little above the middle. Scrolling the list itself
+  // (not scrollIntoView) keeps the rest of the page still.
   useEffect(() => {
     const list = listRef.current
     if (!list || Date.now() < manualUntil.current) return
-    const line = lineRefs.current[Math.max(0, active)]
-    if (!line) return
+    const line = lineRefs.current[active]
+    if (!line) {
+      if (active < 0) list.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
     const target = line.offsetTop - list.clientHeight * 0.38 + line.clientHeight / 2
     const top = Math.max(0, Math.min(target, list.scrollHeight - list.clientHeight))
     if (Math.abs(list.scrollTop - top) > 2) list.scrollTo({ top, behavior: 'smooth' })
-  }, [active, lyrics.trackId])
+  }, [active])
 
   const markManual = (): void => {
     manualUntil.current = Date.now() + MANUAL_PAUSE
   }
 
-  const empty = (content: React.ReactNode, action?: React.ReactNode) => (
+  return (
+    <div
+      className={cx('lyrics synced', stage && 'stage', className)}
+      ref={listRef}
+      onWheel={markManual}
+      onPointerDown={markManual}
+    >
+      {lines.map((line, index) => {
+        const rtl = isRtl(line.text)
+        return (
+          <p
+            key={`${line.time}-${index}`}
+            ref={(node) => {
+              lineRefs.current[index] = node
+            }}
+            dir={rtl ? 'rtl' : 'ltr'}
+            className={cx(
+              'lyric-line',
+              index === active && 'active',
+              index < active && 'past',
+              !line.text && 'gap',
+              rtl && 'rtl',
+            )}
+            onClick={() => {
+              manualUntil.current = 0
+              getStore().seek(line.time)
+            }}
+            title="Jump here"
+          >
+            {line.text || (
+              <span className="gap-dots" aria-label="Instrumental break">
+                • • •
+              </span>
+            )}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
+export function Lyrics({ stage, className }: LyricsProps) {
+  const lyrics = useStore((state) => state.lyrics)
+  const enabled = useStore((state) => state.settings.lyrics)
+  const autoLyrics = useStore((state) => state.settings.autoLyrics)
+  const track = useStore((state) => state.playingTrack)
+
+  const empty = (content: React.ReactNode, action?: React.ReactNode, icon?: React.ReactNode) => (
     <div className={cx('lyrics-empty', stage && 'stage', className)}>
-      <span className="lyrics-cat">
-        <Logo size={stage ? 40 : 30} />
-      </span>
+      <span className="lyrics-cat">{icon ?? <Logo size={stage ? 40 : 30} />}</span>
       {content}
       {action}
     </div>
@@ -72,42 +157,16 @@ export function Lyrics({ stage, className }: LyricsProps) {
     return empty(<p>{autoLyrics ? 'No lyrics loaded yet.' : 'Lyrics are fetched on request.'}</p>, fetchNow('Fetch lyrics'))
   }
 
-  if (lyrics.synced.length) {
-    return (
-      <div
-        className={cx('lyrics synced', stage && 'stage', className)}
-        ref={listRef}
-        onWheel={markManual}
-        onPointerDown={markManual}
-      >
-        {lyrics.synced.map((line, index) => {
-          const distance = Math.abs(index - active)
-          return (
-            <p
-              key={`${line.time}-${index}`}
-              ref={(node) => {
-                lineRefs.current[index] = node
-              }}
-              className={cx(
-                'lyric-line',
-                index === active && 'active',
-                index < active && 'past',
-                !line.text && 'gap',
-                distance > 0 && distance <= 3 && `near-${distance}`,
-              )}
-              style={index === active ? ({ '--progress': `${(progress * 100).toFixed(1)}%` } as React.CSSProperties) : undefined}
-              onClick={() => {
-                manualUntil.current = 0
-                getStore().seek(line.time)
-              }}
-              title="Jump here"
-            >
-              {line.text || <span className="gap-dots" aria-label="Instrumental">• • •</span>}
-            </p>
-          )
-        })}
-      </div>
+  if (lyrics.instrumental) {
+    return empty(
+      <p className="instrumental-label">Instrumental</p>,
+      undefined,
+      <Icon name="music" size={stage ? 34 : 26} />,
     )
+  }
+
+  if (lyrics.synced.length) {
+    return <SyncedLyrics lines={lyrics.synced} stage={stage} className={className} trackId={track.id} />
   }
 
   if (lyrics.plain) {
@@ -115,7 +174,7 @@ export function Lyrics({ stage, className }: LyricsProps) {
       <div className={cx('lyrics plain', stage && 'stage', className)}>
         {lyrics.plain.split(/\r?\n/).map((line, index) =>
           line.trim() ? (
-            <p key={index} className="lyric-line">
+            <p key={index} className={cx('lyric-line', isRtl(line) && 'rtl')} dir={isRtl(line) ? 'rtl' : 'ltr'}>
               {line}
             </p>
           ) : (

@@ -23,6 +23,7 @@ import { grantDirectory, registerMediaProtocol } from './media.js'
 import {
   exportM3u,
   importM3u,
+  pickPlaylistExports,
   isAudioFile,
   pickFolders,
   probeFile,
@@ -33,7 +34,8 @@ import {
   writeTags,
   type TagEdit,
 } from './library.js'
-import { getLyrics } from './lyrics.js'
+import { fetchCover, lookupFix, type MetaChanges, type MetaInput } from './metadata.js'
+import { cacheStats, cachedStatus, clearCache, getLyrics } from './lyrics.js'
 import * as updater from './updater.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -519,6 +521,41 @@ function registerIpc(): void {
     if (typeof file !== 'string' || !edit || typeof edit !== 'object') return { error: 'Invalid request' }
     return writeTags(file, edit as TagEdit)
   })
+  ipcMain.handle('meta:lookup', (_e, item: unknown, online: unknown) => {
+    if (!item || typeof item !== 'object') return null
+    const input = item as MetaInput
+    if (typeof input.path !== 'string' || typeof input.title !== 'string') return null
+    return lookupFix(
+      {
+        id: String(input.id),
+        path: input.path,
+        title: input.title,
+        artist: String(input.artist ?? ''),
+        album: String(input.album ?? ''),
+        albumArtist: String(input.albumArtist ?? ''),
+        year: typeof input.year === 'number' ? input.year : null,
+        trackNo: typeof input.trackNo === 'number' ? input.trackNo : null,
+        duration: Number(input.duration) || 0,
+        hasCover: Boolean(input.hasCover),
+      },
+      Boolean(online),
+    )
+  })
+  ipcMain.handle('meta:apply', async (_e, file: unknown, changes: unknown, coverUrl: unknown) => {
+    if (typeof file !== 'string' || !changes || typeof changes !== 'object') return { error: 'Invalid request' }
+    const c = changes as MetaChanges
+    const edit: TagEdit = {}
+    for (const key of ['title', 'artist', 'album', 'albumArtist'] as const) {
+      if (typeof c[key] === 'string') edit[key] = c[key]
+    }
+    if (typeof c.year === 'number') edit.year = c.year
+    if (typeof c.trackNo === 'number') edit.trackNo = c.trackNo
+    if (typeof coverUrl === 'string') {
+      const cover = await fetchCover(coverUrl)
+      if (cover) edit.cover = cover
+    }
+    return writeTags(file, edit)
+  })
   ipcMain.handle('library:pruneCovers', (_e, used: unknown) =>
     pruneCovers(Array.isArray(used) ? used.filter((item): item is string => typeof item === 'string') : []),
   )
@@ -553,6 +590,7 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle('library:importM3u', () => importM3u(mainWindow))
+  ipcMain.handle('library:pickPlaylistExports', () => pickPlaylistExports(mainWindow))
   ipcMain.handle('library:exportM3u', (_e, name: unknown, entries: unknown) =>
     exportM3u(mainWindow, String(name ?? 'Playlist'), Array.isArray(entries) ? entries : []),
   )
@@ -563,6 +601,11 @@ function registerIpc(): void {
     return true
   })
 
+  ipcMain.handle('lyrics:cached', (_e, queries: unknown) =>
+    cachedStatus(Array.isArray(queries) ? (queries as Parameters<typeof cachedStatus>[0]) : []),
+  )
+  ipcMain.handle('lyrics:stats', () => cacheStats())
+  ipcMain.handle('lyrics:clear', () => clearCache())
   ipcMain.handle('lyrics:get', (_e, query: unknown) =>
     getLyrics((query && typeof query === 'object' ? query : {}) as Parameters<typeof getLyrics>[0]),
   )

@@ -43,6 +43,8 @@ export const createUiSlice: Slice<UiSlice> = (set, get) => ({
   contextMenu: null,
   toasts: [],
   tagEditId: null,
+  metaFix: null,
+  spotifyImportOpen: false,
   miniVisible: false,
 
   setView: (view, source) => {
@@ -114,4 +116,6 @@ export const createUiSlice: Slice<UiSlice> = (set, get) => ({
   },
 
   setTagEdit: (id) => set({ tagEditId: id }),
+  setMetaFix: (scope) => set({ metaFix: scope }),
+  setSpotifyImportOpen: (open) => set({ spotifyImportOpen: open }),
 })

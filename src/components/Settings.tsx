@@ -9,6 +9,9 @@ import { Icon } from './Icons'
 import { Logo } from './Logo'
 import updateLogo from '../../assets/update-logo.svg'
 
+const formatSize = (bytes: number): string =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
 const TABS: { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'appearance', label: 'Appearance', icon: 'palette' },
   { id: 'playback', label: 'Playback', icon: 'play' },
@@ -309,6 +312,14 @@ function Lyrics() {
   const download = useStore((state) => state.lyricsDownload)
   const trackCount = useStore((state) => state.tracks.length)
   const s = getStore()
+  const [db, setDb] = useState<{ songs: number; bytes: number } | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const reload = (): void => void api.lyrics.stats().then(setDb)
+
+  // Refresh the size after a library download finishes.
+  useEffect(() => {
+    if (!download.running) void api.lyrics.stats().then(setDb)
+  }, [download.running])
 
   return (
     <>
@@ -337,7 +348,7 @@ function Lyrics() {
               ? `Downloading ${download.done} of ${download.total}…`
               : download.total > 0
                 ? `Last run: ${download.total - download.failed} found, ${download.failed} without lyrics.`
-                : 'Fetches and caches lyrics for every track so they work offline.'
+                : 'Fetches lyrics for every track so they work offline. Songs already saved are skipped.'
           }
         >
           {download.running ? (
@@ -354,6 +365,36 @@ function Lyrics() {
               <Icon name="download" size={14} /> Download all
             </button>
           )}
+        </Row>
+        <Row
+          label="Lyrics database"
+          help={
+            db
+              ? db.songs
+                ? `${plural(db.songs, 'song')} saved · ${formatSize(db.bytes)} on this PC`
+                : 'Nothing saved yet.'
+              : 'Measuring…'
+          }
+        >
+          <button
+            type="button"
+            className={cx('btn ghost small', confirmClear && 'danger')}
+            disabled={!db?.songs || download.running}
+            onClick={async () => {
+              if (!confirmClear) {
+                setConfirmClear(true)
+                window.setTimeout(() => setConfirmClear(false), 4000)
+                return
+              }
+              await api.lyrics.clear()
+              setConfirmClear(false)
+              reload()
+              void s.fetchLyrics(null)
+              s.showToast('Lyrics database removed', { kind: 'info' })
+            }}
+          >
+            <Icon name="trash" size={14} /> {confirmClear ? 'Click again to remove' : 'Remove'}
+          </button>
         </Row>
       </Group>
     </>
@@ -413,8 +454,29 @@ function Library() {
         <Row label="Watch folders for changes" help="New, changed and deleted files show up without a manual rescan.">
           <Toggle label="Watch folders" on={settings.watchFolders} onChange={(value) => update({ watchFolders: value })} />
         </Row>
+        <Row
+          label="Type to search"
+          help="On Songs, Albums, Artists, Genres and Liked songs, just start typing to filter the page."
+        >
+          <Toggle label="Type to search" on={settings.typeToSearch} onChange={(value) => update({ typeToSearch: value })} />
+        </Row>
         <Row label="Hide duplicate tracks" help="In Songs, show one copy of tracks with the same title and artist.">
           <Toggle label="Hide duplicates" on={settings.hideDuplicates} onChange={(value) => update({ hideDuplicates: value })} />
+        </Row>
+        <Row
+          label="Fix song info"
+          help="Finds better titles, artists, albums and missing artwork. You review every change before it is written."
+        >
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => {
+              s.setSettingsOpen(false)
+              s.setMetaFix('all')
+            }}
+          >
+            <Icon name="wand" size={14} /> Fix song info…
+          </button>
         </Row>
         <Row label="Clear library" help="Forgets every indexed track. Playlists, likes and your files are kept.">
           <button
