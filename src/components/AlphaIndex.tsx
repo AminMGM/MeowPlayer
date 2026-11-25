@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { portalRoot } from '../hooks'
 import { scrollParent } from '../hooks'
 import { cx } from '../utils'
 
@@ -130,6 +131,6 @@ export function AlphaIndex({
         </span>
       ))}
     </div>,
-    document.body,
+    portalRoot(),
   )
 }

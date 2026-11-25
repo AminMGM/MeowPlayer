@@ -143,6 +143,8 @@ function QueueRow({ entry, current, dragging, onDragStart, onDrop }: {
   )
 }
 
+const QUEUE_PAGE = 50
+
 function QueueTab() {
   const queue = useStore((state) => state.queue)
   const queueIndex = useStore((state) => state.queueIndex)
@@ -150,6 +152,8 @@ function QueueTab() {
   const playing = useStore((state) => state.playingTrack)
   const [dragging, setDragging] = useState<number | null>(null)
   const [showPlayed, setShowPlayed] = useState(false)
+  // Only this many rows exist at once; a 6,000-song queue used to build 6,000 rows with artwork.
+  const [limit, setLimit] = useState(QUEUE_PAGE)
   const s = getStore()
 
   const { current, upNext, played } = useMemo(() => {
@@ -215,9 +219,14 @@ function QueueTab() {
           <p className="muted small">Nothing queued after this track.</p>
         ) : (
           <div className="queue-list">
-            {upNext.map((entry) => (
+            {upNext.slice(0, limit).map((entry) => (
               <QueueRow key={`${entry.track.id}-${entry.index}`} entry={entry} dragging={dragging} onDragStart={setDragging} onDrop={drop} />
             ))}
+            {upNext.length > limit && (
+              <button type="button" className="btn ghost small queue-more" onClick={() => setLimit(limit + QUEUE_PAGE)}>
+                Show {Math.min(QUEUE_PAGE, upNext.length - limit)} more · {plural(upNext.length - limit, 'track')} left
+              </button>
+            )}
           </div>
         )}
       </section>
@@ -230,7 +239,7 @@ function QueueTab() {
           </button>
           {showPlayed && (
             <div className="queue-list played">
-              {played.map((entry) => (
+              {played.slice(-QUEUE_PAGE).map((entry) => (
                 <QueueRow key={`${entry.track.id}-${entry.index}`} entry={entry} dragging={dragging} onDragStart={setDragging} onDrop={drop} />
               ))}
             </div>

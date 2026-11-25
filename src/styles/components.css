@@ -1601,82 +1601,24 @@
 
 /* ---------------------------------- icons --------------------------------- */
 
+/* Quiet by design: a small lift on hover and a squeeze on press, nothing on mount. */
 .icon {
   flex: none;
-  transition: transform 280ms var(--ease-spring);
+  transition: transform 180ms var(--ease);
 }
 
-/* State icons (play/pause, like, shuffle, repeat, volume, active nav) pop in when they change. */
-.icon-pop {
-  animation: icon-pop 340ms var(--ease-spring);
+:is(.icon-btn, .btn, .nav-item, .context-item):hover > .icon {
+  transform: translateY(-1px);
 }
 
-.icon-heart.icon-pop {
-  animation: icon-heart 460ms var(--ease-spring);
+:is(.icon-btn, .btn, .nav-item):hover > .icon-settings {
+  transform: rotate(45deg);
+  transition-duration: 400ms;
 }
 
-@keyframes icon-pop {
-  from {
-    opacity: 0.2;
-    transform: scale(0.55) rotate(-12deg);
-  }
-}
-
-@keyframes icon-heart {
-  0% {
-    transform: scale(0.4);
-  }
-  55% {
-    transform: scale(1.22);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* Hover micro-animations: each icon hints at what it does. */
-:is(button, a, .nav-item):hover > .icon-settings {
-  transform: rotate(60deg);
-}
-:is(button, a, .nav-item):hover > .icon-refresh:not(.spin) {
-  transform: rotate(-150deg);
-}
-:is(button, a, .nav-item):hover > .icon-download {
-  transform: translateY(2px);
-}
-:is(button, a, .nav-item):hover > .icon-trash {
-  transform: rotate(-9deg);
-}
-:is(button, a, .nav-item):hover > .icon-plus {
-  transform: rotate(90deg);
-}
-:is(button, a, .nav-item):hover > .icon-search {
-  transform: scale(1.1) rotate(-8deg);
-}
-:is(button, a, .nav-item):hover > :is(.icon-heart-outline, .icon-heart, .icon-sparkle, .icon-star) {
-  transform: scale(1.14);
-}
-:is(button, a, .nav-item):hover > .icon-next {
-  transform: translateX(1.5px);
-}
-:is(button, a, .nav-item):hover > .icon-prev {
-  transform: translateX(-1.5px);
-}
-:is(button, a, .nav-item):hover > :is(.icon-shuffle, .icon-repeat, .icon-repeat1, .icon-history) {
-  transform: rotate(-14deg);
-}
-:is(button, a, .nav-item):hover > :is(.icon-arrow-left, .icon-chevron-left) {
-  transform: translateX(-2px);
-}
-:is(button, a, .nav-item):hover > :is(.icon-arrow-right, .icon-chevron-right, .icon-external) {
-  transform: translateX(2px);
-}
-:is(button, a, .nav-item):hover > :is(.icon-music, .icon-mic, .icon-disc, .icon-folder, .icon-tag, .icon-library, .icon-chart, .icon-home) {
-  transform: translateY(-1.5px);
-}
-:is(button, a, .nav-item):active > .icon {
-  transform: scale(0.84);
-  transition-duration: 90ms;
+:is(.icon-btn, .btn, .nav-item, .context-item):active > .icon {
+  transform: scale(0.88);
+  transition-duration: 80ms;
 }
 
 

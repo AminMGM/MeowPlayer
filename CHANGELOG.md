@@ -2,6 +2,22 @@
 
 All notable changes to MeowPlayer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [2.2.5] - 2026-11-25
+
+### Fixed
+
+- **Large libraries are smooth and light.** The queue panel no longer builds a row for every song in the
+  queue (playing a 6,000-song library froze Now playing at 6 fps), and the Albums and Artists grids only
+  keep the cards near the screen. With 6,000 songs and 600 albums, Now playing went from 6 fps and 1.5 GB
+  to a smooth 165 fps at under 900 MB, and browsing no longer piles up artwork in memory.
+- Lyrics that wrap onto two lines fill one line after the other, instead of both lines at once.
+  Right-to-left lyrics fill from the right, line by line.
+- Songs has one search again: the filter box above the list is gone. Use the search at the top, or just
+  type.
+- Icon animations are quieter: no more icons popping in whenever a list redraws, only a small lift on
+  hover and a squeeze on click.
+- The A–Z scroller no longer sits on top of Settings and other dialogs, where it could block clicks.
+
 ## [2.2.4] - 2026-11-25
 
 ### New

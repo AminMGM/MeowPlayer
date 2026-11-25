@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { portalRoot } from '../hooks'
 import { getStore, useStore } from '../store/useStore'
 import { plural } from '../utils'
 import { Icon } from './Icons'
@@ -94,6 +95,6 @@ export function TypeSearchPill({ query, count, onClear }: { query: string; count
         </button>
       </div>
     </div>,
-    document.body,
+    portalRoot(),
   )
 }

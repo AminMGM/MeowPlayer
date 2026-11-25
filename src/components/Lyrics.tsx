@@ -30,16 +30,25 @@ function useActiveLine(lines: LyricsLine[], lineRefs: React.RefObject<Array<HTML
     if (!isPlaying || !lines.length) return
     let frame = 0
     let current = -2
-    const tick = (): void => {
+    let lastWrite = 0
+    let lastValue = ''
+    const tick = (stamp: number): void => {
+      frame = requestAnimationFrame(tick)
+      // About 30 updates a second is smooth for a colour fill and far cheaper than every frame on a 165 Hz screen.
+      if (stamp - lastWrite < 32) return
+      lastWrite = stamp
       const now = engine.currentTime
       const index = activeLyricIndex(lines, now)
       if (index !== current) {
         current = index
         setActive(index)
       }
+      const value = `${Math.round(lyricProgress(lines, index, now) * 200) / 2}%`
       const node = lineRefs.current?.[index]
-      if (node) node.style.setProperty('--progress', `${(lyricProgress(lines, index, now) * 100).toFixed(1)}%`)
-      frame = requestAnimationFrame(tick)
+      if (node && value !== lastValue) {
+        lastValue = value
+        node.style.setProperty('--progress', value)
+      }
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
@@ -109,7 +118,9 @@ function SyncedLyrics({ lines, stage, className, trackId }: { lines: LyricsLine[
             }}
             title="Jump here"
           >
-            {line.text || (
+            {line.text ? (
+              <span className="lyric-text">{line.text}</span>
+            ) : (
               <span className="gap-dots" aria-label="Instrumental break">
                 • • •
               </span>

@@ -160,3 +160,11 @@ export function useVirtualRows(
   // Short lists render every row.
   return enabled ? { start: range.start, end: Math.min(range.end, count) } : { start: 0, end: count }
 }
+
+/**
+ * Where floating layers that must escape the animated page are portalled: the
+ * app root, so they stay inside the app's stacking context and below dialogs.
+ */
+export function portalRoot(): HTMLElement {
+  return document.querySelector<HTMLElement>('.app') ?? document.body
+}

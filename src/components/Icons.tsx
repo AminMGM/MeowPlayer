@@ -1,9 +1,8 @@
 /*
  * MeowPlayer's icon set, drawn for the app on a 24px grid: soft rounded
  * strokes, rounded filled transport glyphs, and a filled "active" variant for
- * navigation icons. Icons that change state (play/pause, like, shuffle,
- * repeat, volume, the active nav item) pop in when they switch; hover
- * micro-animations live in components.css under "icons".
+ * navigation icons. Hover and press motion lives in components.css under
+ * "icons".
  */
 
 /** Always-filled glyphs (transport controls). */
@@ -162,9 +161,6 @@ const ACTIVE: Record<string, { fill: string[]; stroke?: string[]; evenOdd?: bool
   playlist: { fill: [], stroke: ['M4 6.5h11M4 11.5h11M4 16.5h7', 'M17.5 18.6V9.8l3.5 1.2', 'M17.5 18.6a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0z'] },
 }
 
-/** Icons whose glyph swaps with state; they pop in when they change. */
-const POPS = new Set(['play', 'pause', 'heart', 'heart-outline', 'shuffle', 'repeat', 'repeat1', 'volume', 'volume-mute', 'check'])
-
 interface IconProps {
   name: string
   size?: number
@@ -176,7 +172,7 @@ interface IconProps {
 
 export function Icon({ name, size = 18, className, strokeWidth = 1.85, filledAlt }: IconProps) {
   const active = filledAlt ? ACTIVE[name] : undefined
-  const classes = ['icon', `icon-${name}`, (POPS.has(name) || active) && 'icon-pop', active && 'icon-active', className]
+  const classes = ['icon', `icon-${name}`, active && 'icon-active', className]
     .filter(Boolean)
     .join(' ')
   const common = {

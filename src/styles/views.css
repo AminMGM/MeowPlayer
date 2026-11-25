@@ -512,18 +512,30 @@
   background: var(--hover);
 }
 
-/* The current line fills with colour as it is sung, in the direction it is read. */
+/*
+ * The current line fills with colour as it is sung, in the direction it is
+ * read. The fill is on an inline span: with the default box-decoration-break
+ * (slice) its background runs through the wrapped lines one after another, so
+ * a two-line lyric fills the first line, then the second, instead of both at once.
+ */
 .lyrics.synced .lyric-line.active {
   --fill-dir: 90deg;
   opacity: 1;
   transform: scale(1.03);
+  color: var(--text);
+}
+
+.lyrics.synced .lyric-line.active .lyric-text {
   color: transparent;
+  -webkit-box-decoration-break: slice;
+  box-decoration-break: slice;
   background-image: linear-gradient(
     var(--fill-dir),
     var(--text) 0,
     var(--text) var(--progress, 0%),
     color-mix(in oklab, var(--text) 50%, transparent) calc(var(--progress, 0%) + 6%)
   );
+  -webkit-background-clip: text;
   background-clip: text;
 }
 
@@ -1447,4 +1459,8 @@
   background: var(--accent-fill);
   box-shadow: var(--shadow);
   transform: translateY(-50%);
+}
+
+.toolbar.end {
+  justify-content: flex-end;
 }

@@ -5,6 +5,7 @@ import { Icon } from '../components/Icons'
 import { MediaCard } from '../components/MediaCard'
 import { SongTable, type SortKey, type SortState } from '../components/SongTable'
 import { TypeSearchPill, useTypeToSearch } from '../components/TypeSearch'
+import { VirtualGrid } from '../components/VirtualGrid'
 import { getStore, useStore } from '../store/useStore'
 import type { Track } from '../types'
 import {
@@ -118,21 +119,7 @@ export function SongsView() {
         actions={<PlayButtons ids={ids} />}
       />
 
-      <div className="toolbar">
-        <label className="input-wrap">
-          <Icon name="search" size={15} />
-          <input
-            className="input"
-            placeholder="Filter by title, artist, album or genre"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-          {filter && (
-            <button type="button" className="icon-btn tiny" onClick={() => setFilter('')} aria-label="Clear filter">
-              <Icon name="x" size={12} />
-            </button>
-          )}
-        </label>
+      <div className="toolbar end">
         <div className="sort-group">
           <span className="muted small">Sort by</span>
           <select
@@ -194,8 +181,10 @@ export function AlbumsView() {
       {allAlbums.length === 0 ? (
         <EmptyState title="No albums yet">Add a music folder and your albums appear here.</EmptyState>
       ) : (
-        <div className="card-grid">
-          {albums.map((album) => (
+        <VirtualGrid
+          className="card-grid"
+          items={albums}
+          render={(album) => (
             <MediaCard
               key={album.key}
               title={album.album}
@@ -205,8 +194,8 @@ export function AlbumsView() {
               onOpen={(art) => s.setView({ kind: 'album', id: album.key }, art)}
               onPlay={() => s.playTracks(album.tracks.map((track) => track.id), 0)}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
     </div>
   )
@@ -289,8 +278,10 @@ export function ArtistsView() {
       {allArtists.length === 0 ? (
         <EmptyState title="No artists yet">Add a music folder and your artists appear here.</EmptyState>
       ) : (
-        <div className="card-grid artists">
-          {artists.map((artist) => (
+        <VirtualGrid
+          className="card-grid artists"
+          items={artists}
+          render={(artist) => (
             <MediaCard
               key={artist.name}
               circle
@@ -301,8 +292,8 @@ export function ArtistsView() {
               onOpen={(art) => s.setView({ kind: 'artist', id: artist.name }, art)}
               onPlay={() => s.playTracks(artist.tracks.map((track) => track.id), 0)}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
     </div>
   )
