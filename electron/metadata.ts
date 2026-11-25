@@ -10,7 +10,7 @@
  */
 import { app, nativeImage } from 'electron'
 import path from 'node:path'
-import { cleanTitle, parseFileName } from './tagtext.js'
+import { cleanTag, cleanTitle, isJunkTag, parseFileName } from './tagtext.js'
 
 export interface MetaInput {
   id: string
@@ -55,7 +55,18 @@ function fromFileName(item: MetaInput): MetaChanges {
   const changes: MetaChanges = {}
   const parsed = parseFileName(item.path)
   const titleIsFileName = !item.title.trim() || item.title === fileStem(item.path) || UNKNOWN.test(item.title.trim())
-  const artistUnknown = !item.artist.trim() || UNKNOWN.test(item.artist.trim())
+  const artistClean = isJunkTag(item.artist) ? cleanTag(item.artist) : item.artist
+  const artistUnknown = !artistClean.trim() || UNKNOWN.test(artistClean.trim())
+  if (artistClean !== item.artist && !artistUnknown) changes.artist = artistClean
+  if (isJunkTag(item.album)) {
+    const album = cleanTag(item.album)
+    if (album) changes.album = album
+  }
+  // A channel name in the album artist ("@IRMusicMag"): use the cleaned value, or the song's artist.
+  if (isJunkTag(item.albumArtist)) {
+    const albumArtist = cleanTag(item.albumArtist)
+    changes.albumArtist = albumArtist && !UNKNOWN.test(albumArtist) ? albumArtist : (changes.artist ?? artistClean)
+  }
 
   if (titleIsFileName && parsed.title && parsed.title !== item.title) changes.title = parsed.title
   else {
@@ -200,7 +211,12 @@ async function hasFrontCover(releaseId: string): Promise<boolean> {
  * Proposes fixes for one song, or null when it already looks right.
  * `online` turns the MusicBrainz lookup on.
  */
-export async function lookupFix(item: MetaInput, online: boolean): Promise<MetaProposal | null> {
+/** True when any tag of the song carries upload-channel junk; such rips usually have watermarked artwork too. */
+const hasJunk = (item: MetaInput): boolean =>
+  [item.title, item.artist, item.album, item.albumArtist].some((value) => isJunkTag(value))
+
+export async function lookupFix(item: MetaInput, online: boolean, replaceArt = false): Promise<MetaProposal | null> {
+  const junky = hasJunk(item)
   const local = fromFileName(item)
   const title = local.title ?? item.title
   const artist = local.artist ?? item.artist
@@ -245,15 +261,20 @@ export async function lookupFix(item: MetaInput, online: boolean): Promise<MetaP
           ? best
           : undefined
       if (release) {
-        const albumMissing = !item.album.trim() || UNKNOWN.test(item.album.trim())
+        const currentAlbum = changes.album ?? item.album
+        const albumMissing = !currentAlbum.trim() || UNKNOWN.test(currentAlbum.trim()) || isJunkTag(item.album)
         if (albumMissing) {
           changes.album = release.title
           const albumArtist = credit(release['artist-credit'])
           if (albumArtist && albumArtist !== item.albumArtist) changes.albumArtist = albumArtist
-        } else if (simplify(release.title) === simplify(item.album) && release.title !== item.album) {
+        } else if (simplify(release.title) === simplify(currentAlbum) && release.title !== currentAlbum) {
           changes.album = release.title
         }
-        const sameAlbum = albumMissing || simplify(release.title) === simplify(item.album)
+        const sameAlbum = albumMissing || simplify(release.title) === simplify(currentAlbum)
+        // A junk or unknown album artist gets the release's real one.
+        const albumArtistBad = !item.albumArtist.trim() || UNKNOWN.test(item.albumArtist.trim()) || isJunkTag(item.albumArtist)
+        const releaseArtist = credit(release['artist-credit'])
+        if (sameAlbum && albumArtistBad && releaseArtist) changes.albumArtist = releaseArtist
         // The album's original year (a remaster's own date would say 2011 for a 1985 album).
         const firstYear = await albumYear(release['release-group']?.id)
         if (!item.year && sameAlbum && firstYear) changes.year = firstYear
@@ -261,7 +282,9 @@ export async function lookupFix(item: MetaInput, online: boolean): Promise<MetaP
         const original = firstYear !== null && Number(release.date?.slice(0, 4)) === firstYear
         const number = Number(release.media?.[0]?.track?.[0]?.number)
         if (!item.trackNo && !changes.trackNo && sameAlbum && original && number > 0) changes.trackNo = number
-        if (!item.hasCover && sameAlbum && (await hasFrontCover(release.id))) {
+        // New artwork for songs without any, for junk-tagged rips (usually watermarked), or when asked to replace all.
+        const wantsCover = !item.hasCover || replaceArt || junky
+        if (wantsCover && sameAlbum && (await hasFrontCover(release.id))) {
           coverUrl = `https://coverartarchive.org/release/${release.id}/front-500`
         }
       }

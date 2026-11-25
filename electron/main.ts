@@ -521,7 +521,7 @@ function registerIpc(): void {
     if (typeof file !== 'string' || !edit || typeof edit !== 'object') return { error: 'Invalid request' }
     return writeTags(file, edit as TagEdit)
   })
-  ipcMain.handle('meta:lookup', (_e, item: unknown, online: unknown) => {
+  ipcMain.handle('meta:lookup', (_e, item: unknown, online: unknown, replaceArt: unknown) => {
     if (!item || typeof item !== 'object') return null
     const input = item as MetaInput
     if (typeof input.path !== 'string' || typeof input.title !== 'string') return null
@@ -539,6 +539,7 @@ function registerIpc(): void {
         hasCover: Boolean(input.hasCover),
       },
       Boolean(online),
+      Boolean(replaceArt),
     )
   })
   ipcMain.handle('meta:apply', async (_e, file: unknown, changes: unknown, coverUrl: unknown) => {

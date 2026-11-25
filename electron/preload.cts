@@ -49,7 +49,8 @@ contextBridge.exposeInMainWorld('api', {
     save: (patch: Record<string, unknown>): Promise<boolean> => ipcRenderer.invoke('store:save', patch),
   },
   meta: {
-    lookup: (item: unknown, online: boolean): Promise<unknown> => ipcRenderer.invoke('meta:lookup', item, online),
+    lookup: (item: unknown, online: boolean, replaceArt?: boolean): Promise<unknown> =>
+      ipcRenderer.invoke('meta:lookup', item, online, replaceArt),
     apply: (file: string, changes: unknown, coverUrl?: string): Promise<unknown> =>
       ipcRenderer.invoke('meta:apply', file, changes, coverUrl),
   },

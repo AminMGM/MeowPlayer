@@ -12,11 +12,30 @@ const JUNK = [
   /^(www\.)?[a-z0-9-]+\.(com|net|org|ir|io|me|info)\s*[-|]\s*/i,
 ]
 
+/** Upload-channel junk: @handles, Telegram links, URLs and site names. */
+const PROMO =
+  /@[\w.]{3,}|t\.me\/[^\s)\]}]*|telegram(\.me)?[^\s)\]}]*|https?:\/\/[^\s)\]}]+|www\.[^\s)\]}]+|\b[a-z0-9-]+\.(com|net|org|ir|io|me|info|xyz)\b/gi
+
+/** True when a tag carries upload-channel junk, like "@IRMusicMag" or "t.me/somechannel". */
+export function isJunkTag(value: string): boolean {
+  return new RegExp(PROMO.source, 'i').test(value)
+}
+
+/** Removes promo junk (and brackets left empty by it) from a tag; may return ''. */
+export function cleanTag(value: string): string {
+  return value
+    .replace(PROMO, '')
+    .replace(/[([{]\s*[)\]}]/g, '')
+    .replace(/^[\s\-|•·:,/]+|[\s\-|•·:,/]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 /** Removes video/upload junk and tidies spacing in a title. */
 export function cleanTitle(title: string): string {
   let out = title.replace(/_/g, ' ')
   for (const pattern of JUNK) out = out.replace(pattern, '')
-  return out.replace(/\s{2,}/g, ' ').trim()
+  return cleanTag(out.replace(/\s{2,}/g, ' ').trim())
 }
 
 /** "03. Artist - Title (Official Video).mp3" → { trackNo: 3, artist, title }. */

@@ -8,6 +8,8 @@ import { Icon } from './Icons'
 
 const UNKNOWN = /^(unknown( artist| album)?|various|untitled)?$/i
 const JUNK = /_|\b(official|lyrics?|visuali[sz]er|www\.|\.com\b)|\[(hd|hq|4k)\]/i
+/** Upload-channel junk in any tag: @handles, Telegram links, URLs, site names. */
+const PROMO = /@[\w.]{3,}|t\.me\/|telegram|https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|ir|io|me|info|xyz)\b/i
 
 const stem = (file: string): string => (file.split(/[\\/]/).pop() ?? '').replace(/\.[^.]+$/, '')
 
@@ -16,6 +18,7 @@ export function looksIncomplete(track: Track): boolean {
   return (
     track.title === stem(track.path) ||
     JUNK.test(track.title) ||
+    [track.title, track.artist, track.album, track.albumArtist].some((value) => PROMO.test(value)) ||
     UNKNOWN.test(track.artist.trim()) ||
     UNKNOWN.test(track.album.trim()) ||
     !track.year ||
@@ -46,6 +49,7 @@ function MetaFixerDialog({ scope }: { scope: string[] | 'all' }) {
   const [phase, setPhase] = useState<Phase>('setup')
   const [onlyIncomplete, setOnlyIncomplete] = useState(true)
   const [online, setOnline] = useState(true)
+  const [replaceArt, setReplaceArt] = useState(false)
   const [progress, setProgress] = useState(0)
   const [proposals, setProposals] = useState<MetaProposal[]>([])
   const [checked, setChecked] = useState<Set<string>>(new Set())
@@ -92,6 +96,7 @@ function MetaFixerDialog({ scope }: { scope: string[] | 'all' }) {
           hasCover: Boolean(track.cover),
         },
         online,
+        replaceArt,
       )
       if (proposal) {
         found.push(proposal)
@@ -182,6 +187,19 @@ function MetaFixerDialog({ scope }: { scope: string[] | 'all' }) {
                 </small>
               </span>
             </label>
+            {online && (
+              <label className="check-row">
+                <input type="checkbox" checked={replaceArt} onChange={(event) => setReplaceArt(event.target.checked)} />
+                <span>
+                  <strong>Replace existing artwork</strong>
+                  <small>
+                    Offer the official album cover even for songs that already have artwork. Songs tagged with channel
+                    names or links (like @SomeChannel or t.me/…) always get a new cover offered, since theirs is usually
+                    watermarked.
+                  </small>
+                </span>
+              </label>
+            )}
             {online && targets.length > 60 && (
               <p className="help">This takes about {Math.ceil(targets.length / 60)} minutes. You can stop at any time and review what was found.</p>
             )}
@@ -262,7 +280,11 @@ function MetaFixerDialog({ scope }: { scope: string[] | 'all' }) {
                           {proposal.coverUrl && (
                             <span className="meta-diff">
                               <em>Artwork</em>
-                              <s>none</s>
+                              {track.cover ? (
+                                <Cover src={track.cover} size={44} seed={track.title} alt="Current artwork" className="meta-old-art" />
+                              ) : (
+                                <s>none</s>
+                              )}
                               <Icon name="arrow-right" size={12} />
                               <img src={proposal.coverUrl.replace(/front-500$/, 'front-250')} alt="New artwork" />
                             </span>

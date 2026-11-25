@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanTitle, parseFileName } from '../electron/tagtext'
+import { cleanTag, cleanTitle, isJunkTag, parseFileName } from '../electron/tagtext'
 import { indexLetter } from '../src/components/AlphaIndex'
 import { matchPlaylist, parsePlaylistExport } from '../src/spotify'
 import type { Track } from '../src/types'
@@ -79,5 +79,21 @@ describe('spotify import', () => {
     )
     expect(result.ids).toEqual(['1', '2'])
     expect(result.missing.map((row) => row.title)).toEqual(['Not Here'])
+  })
+})
+
+describe('junk tags', () => {
+  it('spots channel names and links', () => {
+    expect(isJunkTag('@IRMusicMag')).toBe(true)
+    expect(isJunkTag('Night Visions (t.me/somechannel)')).toBe(true)
+    expect(isJunkTag('Imagine Dragons')).toBe(false)
+    expect(isJunkTag('Night Visions (Deluxe)')).toBe(false)
+  })
+
+  it('cleans them out', () => {
+    expect(cleanTag('@IRMusicMag')).toBe('')
+    expect(cleanTag('Night Visions (t.me/somechannel)')).toBe('Night Visions')
+    expect(cleanTag('Demons - @SomeChannel')).toBe('Demons')
+    expect(cleanTitle('Demons [www.example.ir]')).toBe('Demons')
   })
 })

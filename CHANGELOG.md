@@ -2,6 +2,19 @@
 
 All notable changes to MeowPlayer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [2.2.7] - 2026-11-25
+
+### Fixed
+
+- **Albums and Artists no longer go blank** in large libraries. The grid that only builds the cards near
+  the screen lost track of the scroll position and could end up showing nothing.
+- **Fix song info cleans up channel junk.** Album artists, artists, albums and titles carrying Telegram
+  channels, @handles, links or site names (like "@IRMusicMag") are cleaned, and the album artist is set
+  to the real one from MusicBrainz.
+- **Fix song info replaces bad artwork.** Songs with that kind of junk get the official album cover
+  offered even when they already have artwork (usually watermarked), and a new *Replace existing
+  artwork* option offers it for every matched song. The review shows the old and new cover side by side.
+
 ## [2.2.6] - 2026-11-25
 
 ### Fixed

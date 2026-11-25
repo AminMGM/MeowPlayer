@@ -73,6 +73,8 @@ export interface AppApi {
         hasCover: boolean
       },
       online: boolean,
+      /** Offer album artwork even for songs that already have some. */
+      replaceArt?: boolean,
     ) => Promise<MetaProposal | null>
     apply: (file: string, changes: MetaChanges, coverUrl?: string) => Promise<{ track?: Track; error?: string }>
   }

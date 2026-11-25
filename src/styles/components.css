@@ -1835,3 +1835,8 @@
   font-size: var(--fs-xs);
   color: var(--text-2);
 }
+
+.meta-diff .meta-old-art {
+  opacity: 0.6;
+  border-radius: 6px;
+}
